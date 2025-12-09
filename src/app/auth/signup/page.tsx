@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 
 export default function SignupPage() {
   const [email, setEmail] = useState('')
@@ -13,6 +13,9 @@ export default function SignupPage() {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const router = useRouter()
+  const searchParams = useSearchParams()
+  
+  const redirectType = searchParams.get('redirect')
 
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -25,14 +28,12 @@ export default function SignupPage() {
     setError('')
     setMessage('')
 
-    // Validate passwords match
     if (password !== confirmPassword) {
       setError('Passwords do not match')
       setLoading(false)
       return
     }
 
-    // Validate password strength
     if (password.length < 6) {
       setError('Password must be at least 6 characters')
       setLoading(false)
@@ -40,8 +41,6 @@ export default function SignupPage() {
     }
 
     try {
-      console.log('Attempting signup...') // Debug log
-
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -49,27 +48,20 @@ export default function SignupPage() {
           data: {
             full_name: fullName,
           },
-          emailRedirectTo: `${window.location.origin}/auth/callback`
+          emailRedirectTo: `${window.location.origin}/auth/callback${redirectType ? `?redirect=${redirectType}` : ''}`
         }
       })
 
-      console.log('Signup response:', { data, error }) // Debug log
-
       if (error) {
-        console.error('Signup error:', error)
         setError(error.message)
       } else {
-        console.log('Signup successful, user:', data.user)
         setMessage('Check your email for a verification link!')
-        
-        // Clear form
         setEmail('')
         setPassword('')
         setFullName('')
         setConfirmPassword('')
       }
     } catch (err) {
-      console.error('Unexpected error:', err)
       setError('An unexpected error occurred')
     } finally {
       setLoading(false)
@@ -83,6 +75,12 @@ export default function SignupPage() {
           <h1 className="text-2xl font-bold mb-6 text-center text-purple-400">
             CREATE ACCOUNT
           </h1>
+
+          {redirectType === 'purchase' && (
+            <div className="bg-yellow-900/20 border border-yellow-500 text-yellow-200 p-3 rounded mb-4 text-sm">
+              🔒 Create account to complete purchase
+            </div>
+          )}
 
           {error && (
             <div className="bg-red-900 border border-red-500 text-red-200 p-3 rounded mb-4">
@@ -154,7 +152,7 @@ export default function SignupPage() {
 
           <p className="mt-4 text-center text-sm">
             Already have an account?{' '}
-            <a href="/auth/login" className="text-cyan-400 hover:underline">
+            <a href={`/auth/login${redirectType ? `?redirect=${redirectType}` : ''}`} className="text-cyan-400 hover:underline">
               Sign in
             </a>
           </p>

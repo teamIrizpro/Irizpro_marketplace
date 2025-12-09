@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -10,6 +10,9 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const router = useRouter()
+  const searchParams = useSearchParams()
+  
+  const redirectType = searchParams.get('redirect')
 
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -22,34 +25,35 @@ export default function LoginPage() {
     setError('')
 
     try {
-      console.log('Attempting login with:', email) // Debug log
-
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
 
-      console.log('Login response:', { data, error }) // Debug log
-
       if (error) {
-        console.error('Login error:', error)
         setError(error.message)
       } else if (data.user) {
-        console.log('Login successful, user:', data.user.id)
-        
-        // Check if user is verified
         if (!data.user.email_confirmed_at) {
           setError('Please verify your email before signing in. Check your inbox for a verification link.')
           return
         }
         
-        // Redirect to dashboard
+        // Handle purchase redirect
+        if (redirectType === 'purchase') {
+          const pendingPurchase = localStorage.getItem('pendingPurchase')
+          if (pendingPurchase) {
+            localStorage.removeItem('pendingPurchase')
+            const purchaseData = JSON.parse(pendingPurchase)
+            const params = new URLSearchParams(purchaseData)
+            router.push(`/purchase?${params.toString()}`)
+            return
+          }
+        }
+        
+        // Default redirect to dashboard
         router.push('/dashboard')
-      } else {
-        setError('Login failed. Please try again.')
       }
     } catch (err) {
-      console.error('Unexpected login error:', err)
       setError('An unexpected error occurred')
     } finally {
       setLoading(false)
@@ -63,6 +67,12 @@ export default function LoginPage() {
           <h1 className="text-2xl font-bold mb-6 text-center text-cyan-400">
             SYSTEM LOGIN
           </h1>
+
+          {redirectType === 'purchase' && (
+            <div className="bg-yellow-900/20 border border-yellow-500 text-yellow-200 p-3 rounded mb-4 text-sm">
+              🔒 Login required to complete purchase
+            </div>
+          )}
 
           {error && (
             <div className="bg-red-900 border border-red-500 text-red-200 p-3 rounded mb-4">
@@ -105,7 +115,7 @@ export default function LoginPage() {
           <div className="mt-6 space-y-3 text-center text-sm">
             <p>
               Don't have an account?{' '}
-              <a href="/auth/signup" className="text-purple-400 hover:underline">
+              <a href={`/auth/signup${redirectType ? `?redirect=${redirectType}` : ''}`} className="text-purple-400 hover:underline">
                 Create account
               </a>
             </p>

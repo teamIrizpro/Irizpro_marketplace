@@ -127,7 +127,7 @@ export default function Home() {
               <div className="grid gap-4">
                 
                 {/* Browse Workflows Card */}
-                <Link href="/workflows" className="group block">
+                <Link href="/browse" className="group block">
                   <div className="bg-gradient-to-r from-cyan-500/10 to-purple-500/10 border border-cyan-500/30 rounded-lg p-6 backdrop-blur-sm transition-all duration-300 group-hover:border-cyan-400/60 group-hover:shadow-[0_0_30px_rgba(6,182,212,0.3)]">
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="font-mono text-xl font-bold text-white">./browse_agents</h3>
@@ -153,7 +153,7 @@ export default function Home() {
                 </Link>
 
                 {/* Credits Card */}
-                <Link href="/credits" className="group block">
+                {/* <Link href="/credits" className="group block">
                   <div className="bg-gradient-to-r from-pink-500/10 to-orange-500/10 border border-pink-500/30 rounded-lg p-6 backdrop-blur-sm transition-all duration-300 group-hover:border-pink-400/60 group-hover:shadow-[0_0_30px_rgba(236,72,153,0.3)]">
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="font-mono text-xl font-bold text-white">./buy_credits</h3>
@@ -163,7 +163,7 @@ export default function Home() {
                       Purchase execution credits • Starting from ₹1
                     </p>
                   </div>
-                </Link>
+                </Link> */}
               </div>
 
               {/* Stats display */}
