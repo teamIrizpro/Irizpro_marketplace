@@ -1,119 +1,124 @@
-"use client";
+'use client'
 
-import { useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { createClient } from '@/lib/supabase/client'
+import { useState } from 'react'
+import { createBrowserClient } from '@supabase/ssr'
+import { useRouter } from 'next/navigation'
 
-export default function AuthPage() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const router = useRouter();
+export default function LoginPage() {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const router = useRouter()
+
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
 
   const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError("");
+    e.preventDefault()
+    setLoading(true)
+    setError('')
 
-    // Mock login for now
-    setTimeout(() => {
-      if (email && password.length >= 6) {
-        router.push("/dashboard");
+    try {
+      console.log('Attempting login with:', email) // Debug log
+
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
+
+      console.log('Login response:', { data, error }) // Debug log
+
+      if (error) {
+        console.error('Login error:', error)
+        setError(error.message)
+      } else if (data.user) {
+        console.log('Login successful, user:', data.user.id)
+        
+        // Check if user is verified
+        if (!data.user.email_confirmed_at) {
+          setError('Please verify your email before signing in. Check your inbox for a verification link.')
+          return
+        }
+        
+        // Redirect to dashboard
+        router.push('/dashboard')
       } else {
-        setError("Invalid credentials");
+        setError('Login failed. Please try again.')
       }
-      setLoading(false);
-    }, 1000);
-  };
+    } catch (err) {
+      console.error('Unexpected login error:', err)
+      setError('An unexpected error occurred')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   return (
-    <div className="min-h-screen bg-black flex items-center justify-center px-6">
-      <div className="w-full max-w-md">
-        
-        {/* Back to home */}
-        <div className="mb-8">
-          <Link 
-            href="/"
-            className="inline-flex items-center gap-2 font-mono text-cyan-400 hover:text-cyan-300 transition-colors"
-          >
-            <span>←</span>
-            <span>back to home</span>
-          </Link>
-        </div>
+    <div className="min-h-screen bg-black text-green-400 font-mono">
+      <div className="container mx-auto px-4 py-8">
+        <div className="max-w-md mx-auto bg-gray-900 border border-cyan-500 rounded-lg p-8">
+          <h1 className="text-2xl font-bold mb-6 text-center text-cyan-400">
+            SYSTEM LOGIN
+          </h1>
 
-        {/* Login form */}
-        <div className="bg-gray-900/90 border border-cyan-500/40 rounded-xl p-6">
-          
-          {/* Header */}
-          <div className="mb-6 text-center">
-            <h1 className="font-mono text-2xl font-bold text-white mb-2">Login</h1>
-            <p className="font-mono text-sm text-gray-400">Enter your credentials</p>
-          </div>
+          {error && (
+            <div className="bg-red-900 border border-red-500 text-red-200 p-3 rounded mb-4">
+              {error}
+            </div>
+          )}
 
-          {/* Form */}
           <form onSubmit={handleLogin} className="space-y-4">
-            
-            {/* Email */}
             <div>
-              <label className="block font-mono text-cyan-400 text-sm mb-2">
-                Email Address
-              </label>
+              <label className="block text-sm font-medium mb-2">Email</label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-black/50 border border-gray-600/50 rounded-lg px-4 py-3 text-white font-mono placeholder-gray-500 focus:border-cyan-400/60 focus:outline-none"
-                placeholder="user@example.com"
+                className="w-full px-3 py-2 bg-black border border-gray-600 rounded focus:border-cyan-400 focus:outline-none"
                 required
               />
             </div>
 
-            {/* Password */}
             <div>
-              <label className="block font-mono text-cyan-400 text-sm mb-2">
-                Password
-              </label>
+              <label className="block text-sm font-medium mb-2">Password</label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-black/50 border border-gray-600/50 rounded-lg px-4 py-3 text-white font-mono placeholder-gray-500 focus:border-cyan-400/60 focus:outline-none"
-                placeholder="••••••••"
-                minLength={6}
+                className="w-full px-3 py-2 bg-black border border-gray-600 rounded focus:border-cyan-400 focus:outline-none"
                 required
               />
             </div>
 
-            {/* Error */}
-            {error && (
-              <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/40 text-red-400 font-mono text-sm">
-                {error}
-              </div>
-            )}
-
-            {/* Submit */}
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-600 hover:to-blue-600 text-white font-mono font-bold rounded-lg transition-all disabled:opacity-50"
+              className="w-full bg-cyan-600 hover:bg-cyan-700 disabled:bg-gray-700 text-white py-2 px-4 rounded transition-colors"
             >
-              {loading ? "Logging in..." : "Login"}
+              {loading ? 'Signing In...' : 'Sign In'}
             </button>
           </form>
 
-          {/* Links */}
-          <div className="mt-6 text-center">
-            <Link 
-              href="/auth/signup"
-              className="font-mono text-sm text-cyan-400 hover:text-cyan-300"
-            >
-              Need an account? Sign up
-            </Link>
+          <div className="mt-6 space-y-3 text-center text-sm">
+            <p>
+              Don't have an account?{' '}
+              <a href="/auth/signup" className="text-purple-400 hover:underline">
+                Create account
+              </a>
+            </p>
+            
+            <p>
+              Forgot your password?{' '}
+              <a href="/auth/reset" className="text-cyan-400 hover:underline">
+                Reset password
+              </a>
+            </p>
           </div>
         </div>
       </div>
     </div>
-  );
+  )
 }
