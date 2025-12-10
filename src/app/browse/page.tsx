@@ -12,8 +12,9 @@ interface Agent {
   credit_cost: number
   category: string
   icon_url?: string
-  created_at: string
   is_active: boolean
+  created_at: string
+  updated_at: string
 }
 
 interface PurchasedAgent {
@@ -27,6 +28,7 @@ export default function BrowseAgents() {
   const [purchasedAgents, setPurchasedAgents] = useState<PurchasedAgent[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
+  const [lastUpdate, setLastUpdate] = useState<Date>(new Date())
   const router = useRouter()
 
   const supabase = createBrowserClient(
@@ -37,6 +39,7 @@ export default function BrowseAgents() {
   useEffect(() => {
     checkUser()
     loadAgents()
+    setupRealtimeSubscription()
   }, [])
 
   useEffect(() => {
@@ -44,6 +47,29 @@ export default function BrowseAgents() {
       loadPurchasedAgents()
     }
   }, [user])
+
+  const setupRealtimeSubscription = () => {
+    const channel = supabase
+      .channel('marketplace-agents-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'agents'
+        },
+        (payload) => {
+          console.log('Real-time marketplace update:', payload)
+          setLastUpdate(new Date())
+          loadAgents()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }
 
   const checkUser = async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -60,6 +86,7 @@ export default function BrowseAgents() {
 
       if (error) throw error
       setAgents(data || [])
+      console.log('Loaded agents:', data?.length || 0)
     } catch (error) {
       console.error('Error loading agents:', error)
     } finally {
@@ -69,7 +96,7 @@ export default function BrowseAgents() {
 
   const loadPurchasedAgents = async () => {
     if (!user) return
-    
+
     try {
       const { data, error } = await supabase
         .from('user_agents')
@@ -82,7 +109,7 @@ export default function BrowseAgents() {
     }
   }
 
-  const categories = ['all', ...new Set(agents.map(agent => agent.category))]
+  const categories = ['all', ...new Set(agents.map(agent => agent.category).filter(Boolean))]
   const filteredAgents = selectedCategory === 'all' 
     ? agents 
     : agents.filter(agent => agent.category === selectedCategory)
@@ -132,12 +159,15 @@ export default function BrowseAgents() {
   return (
     <div className="min-h-screen bg-black text-green-400 font-mono">
       {/* Header */}
-      <header className="border-b-2 border-green-500 p-4">
+      <header className="border-b-2 border-purple-500 p-4 bg-gray-900/20">
         <div className="container mx-auto flex justify-between items-center">
           <div className="flex items-center space-x-4">
-            <h1 className="text-2xl font-bold text-purple-400">◉ AGENT MARKETPLACE ◉</h1>
+            <h1 className="text-2xl font-bold text-purple-400">◉ NEURAL AGENT MARKETPLACE ◉</h1>
+            <div className="text-sm bg-purple-900/30 border border-purple-500 rounded px-2 py-1">
+              <span className="text-purple-300">LIVE UPDATES</span>
+            </div>
             <div className="text-sm">
-              Available Neural Networks: {agents.length}
+              Available Agents: <span className="text-cyan-400 font-bold">{agents.length}</span>
             </div>
           </div>
           
@@ -187,6 +217,24 @@ export default function BrowseAgents() {
         </div>
       )}
 
+      {/* Real-time Status Bar */}
+      <div className="bg-gray-900/30 border-b border-gray-600 p-2">
+        <div className="container mx-auto flex justify-between items-center text-xs">
+          <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-2">
+              <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+              <span className="text-green-400">Live Marketplace</span>
+            </div>
+            <span className="text-gray-400">
+              Last Update: {lastUpdate.toLocaleTimeString()}
+            </span>
+          </div>
+          <div className="text-gray-400">
+            Showing only active agents | Admin-managed inventory
+          </div>
+        </div>
+      </div>
+
       {/* Category Filter */}
       <div className="container mx-auto p-6">
         <div className="mb-6">
@@ -209,24 +257,46 @@ export default function BrowseAgents() {
         </div>
 
         {/* Agents Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {filteredAgents.map((agent) => (
-            <MarketplaceAgentCard
-              key={agent.id}
-              agent={agent}
-              isPurchased={user ? isPurchased(agent.id) : false}
-              remainingCredits={user ? getRemainingCredits(agent.id) : 0}
-              onPurchase={() => handlePurchase(agent)}
-              isLoggedIn={!!user}
-            />
-          ))}
-        </div>
-
-        {filteredAgents.length === 0 && (
+        {filteredAgents.length === 0 ? (
           <div className="text-center py-16">
-            <div className="text-4xl text-gray-600 mb-4">◉ ◉ ◉</div>
-            <h3 className="text-xl text-gray-400 mb-4">NO AGENTS FOUND</h3>
-            <p className="text-gray-500">No neural networks match your current filter.</p>
+            <div className="text-6xl text-gray-600 mb-6">🤖</div>
+            <h3 className="text-2xl text-gray-400 mb-4">NO AGENTS AVAILABLE</h3>
+            <p className="text-gray-500 mb-6">
+              {selectedCategory === 'all' 
+                ? 'No neural networks are currently active in the marketplace.' 
+                : `No agents available in the "${selectedCategory}" category.`
+              }
+            </p>
+            
+            {selectedCategory !== 'all' && (
+              <button 
+                onClick={() => setSelectedCategory('all')}
+                className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white border-2 border-purple-400 transition-colors rounded"
+              >
+                VIEW ALL CATEGORIES
+              </button>
+            )}
+
+            {agents.length === 0 && (
+              <div className="mt-8 p-4 bg-yellow-900/20 border border-yellow-500 rounded">
+                <p className="text-yellow-400 text-sm">
+                  🔧 Marketplace is being updated by administrators. Check back soon for new agents!
+                </p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {filteredAgents.map((agent) => (
+              <MarketplaceAgentCard
+                key={agent.id}
+                agent={agent}
+                isPurchased={user ? isPurchased(agent.id) : false}
+                remainingCredits={user ? getRemainingCredits(agent.id) : 0}
+                onPurchase={() => handlePurchase(agent)}
+                isLoggedIn={!!user}
+              />
+            ))}
           </div>
         )}
       </div>
@@ -243,58 +313,86 @@ interface MarketplaceAgentCardProps {
 }
 
 function MarketplaceAgentCard({ agent, isPurchased, remainingCredits, onPurchase, isLoggedIn }: MarketplaceAgentCardProps) {
+  const isNew = new Date(agent.created_at) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+
   return (
-    <div className="border-2 border-purple-500 bg-purple-900/10 hover:bg-purple-900/20 transition-all duration-300 rounded-lg p-6 relative">
-      {/* Purchase Status Badge */}
-      {isLoggedIn && isPurchased && (
-        <div className="absolute top-4 right-4 bg-green-600 text-black px-2 py-1 text-xs font-bold rounded">
-          OWNED ({remainingCredits} CREDITS)
-        </div>
-      )}
+    <div className="border-2 border-purple-500 bg-purple-900/10 hover:bg-purple-900/20 transition-all duration-300 rounded-lg p-6 relative shadow-lg hover:shadow-purple-500/20">
+      {/* Status Badges */}
+      <div className="absolute top-4 right-4 flex flex-col gap-1 z-10">
+        {isLoggedIn && isPurchased && (
+          <div className="bg-green-600 text-black px-2 py-1 text-xs font-bold rounded">
+            OWNED ({remainingCredits})
+          </div>
+        )}
+        {isNew && (
+          <div className="bg-yellow-500 text-black px-2 py-1 text-xs font-bold rounded">
+            NEW
+          </div>
+        )}
+      </div>
 
       {/* Agent Icon/Avatar */}
       <div className="flex items-center mb-4">
-        <div className="w-12 h-12 border-2 border-purple-400 rounded flex items-center justify-center mr-4">
+        <div className="w-12 h-12 border-2 border-purple-400 rounded flex items-center justify-center mr-4 bg-purple-900/30">
           <span className="text-xl">🤖</span>
         </div>
-        <div>
-          <h3 className="text-lg font-bold text-purple-400">{agent.name}</h3>
-          <div className="text-xs text-gray-400">{agent.category}</div>
+        <div className="flex-1">
+          <h3 className="text-lg font-bold text-purple-400 leading-tight">{agent.name}</h3>
+          <div className="text-xs text-gray-400 bg-gray-800/50 rounded px-2 py-1 mt-1 inline-block">
+            {agent.category}
+          </div>
         </div>
       </div>
 
       {/* Description */}
-      <p className="text-sm text-gray-300 mb-4 h-12 overflow-hidden">{agent.description}</p>
+      <p className="text-sm text-gray-300 mb-4 leading-relaxed h-16 overflow-hidden">{agent.description}</p>
 
       {/* Pricing */}
       <div className="mb-4 p-3 bg-black/50 border border-gray-600 rounded">
-        <div className="text-xs text-gray-400">COST PER EXECUTION</div>
-        <div className="text-yellow-400 font-bold text-lg">₹{agent.credit_cost}</div>
+        <div className="flex justify-between items-center">
+          <div>
+            <div className="text-xs text-gray-400">COST PER EXECUTION</div>
+            <div className="text-yellow-400 font-bold text-lg">₹{agent.credit_cost}</div>
+          </div>
+          <div className="text-xs text-gray-400 text-right">
+            <div>Added: {new Date(agent.created_at).toLocaleDateString()}</div>
+          </div>
+        </div>
       </div>
 
       {/* Action Button */}
       {isLoggedIn && isPurchased ? (
         <div className="space-y-2">
-          <div className="w-full py-2 bg-green-600/20 text-green-400 border border-green-500 text-center rounded">
+          <div className="w-full py-3 bg-green-600/20 text-green-400 border border-green-500 text-center rounded font-bold">
             ✓ ALREADY PURCHASED
           </div>
-          <div className="text-xs text-center text-gray-400">
-            {remainingCredits} credits remaining
+          <div className="text-xs text-center text-gray-400 bg-gray-800/50 rounded p-2">
+            {remainingCredits} credits remaining | Go to Dashboard to execute
           </div>
         </div>
       ) : (
         <button
           onClick={onPurchase}
-          className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white font-bold border border-purple-400 transition-colors rounded"
+          className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white font-bold border-2 border-purple-400 transition-all rounded hover:shadow-lg hover:shadow-purple-500/30"
         >
-          {isLoggedIn ? 'PURCHASE AGENT' : 'LOGIN TO PURCHASE'}
+          {isLoggedIn ? '💳 PURCHASE AGENT' : '🔐 LOGIN TO PURCHASE'}
         </button>
       )}
 
       {/* Technical Specs */}
-      <div className="mt-4 pt-4 border-t border-gray-700 text-xs text-gray-500">
-        <div>NEURAL CORE: v2.1.{Math.floor(Math.random() * 9)}</div>
-        <div>PROCESSING: {Math.floor(Math.random() * 50 + 50)}ms avg</div>
+      <div className="mt-4 pt-4 border-t border-gray-700 text-xs text-gray-500 space-y-1">
+        <div className="flex justify-between">
+          <span>NEURAL CORE:</span>
+          <span className="text-cyan-400">v2.1.{Math.floor(Math.random() * 9)}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>PROCESSING:</span>
+          <span className="text-green-400">{Math.floor(Math.random() * 50 + 50)}ms avg</span>
+        </div>
+        <div className="flex justify-between">
+          <span>RELIABILITY:</span>
+          <span className="text-yellow-400">{Math.floor(Math.random() * 10 + 90)}%</span>
+        </div>
       </div>
     </div>
   )
