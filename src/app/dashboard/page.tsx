@@ -35,6 +35,10 @@ export default function Dashboard() {
   const [executingAgent, setExecutingAgent] = useState<string | null>(null)
   const [showExecutionForm, setShowExecutionForm] = useState<string | null>(null)
   const [executionData, setExecutionData] = useState<ExecutionForm>({})
+  // New state variables for improved execution handling
+  const [executionLoading, setExecutionLoading] = useState(false)
+  const [executionResult, setExecutionResult] = useState<any>(null)
+  const [executionError, setExecutionError] = useState<string | null>(null)
   const router = useRouter()
 
   const supabase = createBrowserClient(
