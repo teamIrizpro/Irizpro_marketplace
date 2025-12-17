@@ -1,14 +1,14 @@
-// src/app/api/razorpay/payment-intent/route.ts
+// Fixed src/app/api/razorpay/payment-intent/route.ts
 import Razorpay from 'razorpay';
 import { NextResponse } from 'next/server';
 
-// Initialize Razorpay with keys from .env.local
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID!,
-  key_secret: process.env.RAZORPAY_KEY_SECRET!,
-});
-
 export async function POST(req: Request) {
+  // Move Razorpay initialization inside the handler to avoid build-time execution
+  const razorpay = new Razorpay({
+    key_id: process.env.RAZORPAY_KEY_ID!,
+    key_secret: process.env.RAZORPAY_KEY_SECRET!,
+  });
+
   try {
     const { amount, currency, receipt, notes } = await req.json();
 

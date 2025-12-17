@@ -1,14 +1,15 @@
-// src/app/api/razorpay/create-order/route.ts
+// Fixed src/app/api/razorpay/create-order/route.ts
 import Razorpay from 'razorpay';
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase/server';
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID!,
-  key_secret: process.env.RAZORPAY_KEY_SECRET!,
-});
-
 export async function POST(req: Request) {
+  // Move Razorpay initialization inside the handler to avoid build-time execution
+  const razorpay = new Razorpay({
+    key_id: process.env.RAZORPAY_KEY_ID!,
+    key_secret: process.env.RAZORPAY_KEY_SECRET!,
+  });
+
   try {
     const { packageId, amount, credits } = await req.json();
 
