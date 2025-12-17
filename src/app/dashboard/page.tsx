@@ -1,5 +1,5 @@
 'use client'
-
+      
 import { useState, useEffect } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { User } from '@supabase/supabase-js'
@@ -470,64 +470,227 @@ const handleExecutionFormSubmit = async (agentId: string, isUserAgent: boolean =
       </header>
 
       {/* Execution Form Modal */}
-      {showExecutionForm && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-900 border-2 border-green-500 rounded-lg p-6 max-w-2xl w-full max-h-[80vh] overflow-auto">
-            <h3 className="text-xl text-green-400 mb-6">
-              ◉ CONFIGURE AGENT EXECUTION ◉
+      // Simplified Execution Modal Component
+      // Replace your execution modal section with this clean version
+
+    {/* Simplified Execution Modal */}
+{showExecutionForm && (
+  <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50 p-4">
+    <div className="bg-gray-900 border-2 border-green-500 rounded-lg max-w-4xl w-full max-h-[90vh] overflow-hidden shadow-2xl">
+      
+      {/* Modal Header */}
+      <div className="border-b border-green-500 border-opacity-30 p-6 bg-gray-800 bg-opacity-50">
+        <div className="flex justify-between items-center">
+          <div>
+            <h3 className="text-2xl text-green-400 font-bold mb-2">
+              ◉ AGENT EXECUTION TERMINAL ◉
             </h3>
-            
-            {(() => {
-              const agent = purchasedAgents.find(a => a.id === showExecutionForm)?.agent ||
-                          allAgents.find(a => a.id === showExecutionForm)
-              return agent?.input_schema?.map((field: any) => (
-                <div key={field.name} className="mb-4">
-                  <label className="block text-sm font-medium mb-2 text-green-300">
-                    {field.label} {field.required && <span className="text-red-400">*</span>}
-                  </label>
-                  {renderInputField(field)}
-                  {field.description && (
-                    <p className="text-xs text-gray-400 mt-1">{field.description}</p>
-                  )}
-                </div>
-              ))
-            })()}
-            
-            <div className="flex space-x-4 mt-6">
-            {executionLoading ? (
-              <div className="text-center py-6">
-                <div className="w-full bg-gray-700 rounded-full h-3 mb-4">
-                  <div 
-                    className="bg-cyan-500 h-3 rounded-full transition-all duration-500" 
-                    style={{ width: `${executionProgress}%` }}
-                  ></div>
-                </div>
-                <div className="text-cyan-400 font-bold">{executionStatus}</div>
-                <div className="text-cyan-200 text-sm mt-2">{executionProgress}% Complete</div>
-              </div>
-            ) : (
-              <button
-                onClick={() => handleExecutionFormSubmit(showExecutionForm, purchasedAgents.some(a => a.id === showExecutionForm))}
-                disabled={executingAgent === showExecutionForm}
-                className="flex-1 py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-700 text-black font-bold border border-green-400 transition-colors"
-              >
-                🚀 EXECUTE AGENT
-              </button>
-            )}
-              
-              <button
-                onClick={() => {
-                  setShowExecutionForm(null)
-                  setExecutionData({})
-                }}
-                className="px-6 py-3 bg-gray-600 hover:bg-gray-700 text-white font-bold border border-gray-400 transition-colors"
-              >
-                CANCEL
-              </button>
+            <p className="text-gray-300 text-sm">
+              Configure parameters and execute your neural agent
+            </p>
+          </div>
+          
+          {!executionLoading && (
+            <button
+              onClick={() => {
+                setShowExecutionForm(null)
+                setExecutionData({})
+              }}
+              className="text-gray-400 hover:text-red-400 text-2xl transition-colors duration-200"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Progress Section */}
+      {executionLoading && (
+        <div className="p-6 border-b border-green-500 border-opacity-30 bg-black bg-opacity-40">
+          
+          {/* Agent Processing Header */}
+          <div className="flex items-center mb-6">
+            <div className="w-12 h-12 border-2 border-cyan-400 rounded-full flex items-center justify-center mr-4 bg-cyan-900 bg-opacity-30">
+              <span className="text-xl">🤖</span>
             </div>
+            <div>
+              <h4 className="text-lg font-bold text-cyan-400">Neural Processing Active</h4>
+              <p className="text-sm text-gray-400">Advanced AI agent execution in progress</p>
+            </div>
+          </div>
+
+          {/* Enhanced Progress Bar */}
+          <div className="space-y-4">
+            <div className="relative">
+              {/* Background Track */}
+              <div className="w-full bg-gray-800 rounded-full h-6 overflow-hidden border border-gray-600">
+                {/* Progress Fill */}
+                <div 
+                  className="h-full transition-all duration-1000 ease-out rounded-full relative"
+                  style={{ 
+                    width: `${executionProgress}%`,
+                    background: executionProgress > 0 ? 
+                      'linear-gradient(90deg, #10B981, #06B6D4, #8B5CF6)' : 
+                      'transparent',
+                    boxShadow: executionProgress > 0 ? '0 0 10px rgba(34, 197, 94, 0.5)' : 'none'
+                  }}
+                >
+                  {/* Progress Text */}
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <span className="text-xs font-bold text-white">
+                      {executionProgress}%
+                    </span>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Completion Indicator */}
+              {executionProgress === 100 && (
+                <div className="absolute -right-2 -top-2">
+                  <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white font-bold text-sm animate-bounce">
+                    ✓
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            {/* Status Cards */}
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className="bg-gray-800 bg-opacity-50 rounded-lg p-3 border border-gray-600">
+                <div className="text-gray-400 mb-1">Progress</div>
+                <div className="text-2xl font-bold text-cyan-400">{executionProgress}%</div>
+              </div>
+              <div className="bg-gray-800 bg-opacity-50 rounded-lg p-3 border border-gray-600">
+                <div className="text-gray-400 mb-1">Status</div>
+                <div className="text-sm font-medium text-green-300 truncate">
+                  {executionStatus || 'Processing...'}
+                </div>
+              </div>
+            </div>
+            
+            {/* Processing Indicator */}
+            <div className="flex items-center justify-center space-x-2 py-2">
+              <div className="flex items-center space-x-1">
+                <span className="text-yellow-400 text-sm">◉</span>
+                <span className="text-yellow-300 text-sm font-mono">NEURAL</span>
+              </div>
+              
+              <div className="flex space-x-1">
+                <div className="w-2 h-4 bg-yellow-400 rounded-full animate-pulse"></div>
+                <div className="w-2 h-4 bg-yellow-400 rounded-full animate-pulse" style={{animationDelay: '0.2s'}}></div>
+                <div className="w-2 h-4 bg-yellow-400 rounded-full animate-pulse" style={{animationDelay: '0.4s'}}></div>
+              </div>
+              
+              <div className="flex items-center space-x-1">
+                <span className="text-cyan-300 text-sm font-mono">PROCESSING</span>
+                <span className="text-cyan-400 text-sm">◉</span>
+              </div>
+            </div>
+            
+            {/* Time Estimation */}
+            {executionProgress > 10 && executionProgress < 100 && (
+              <div className="text-center text-xs text-gray-500">
+                Estimated completion: {Math.round((100 - executionProgress) * 2)} seconds remaining
+              </div>
+            )}
           </div>
         </div>
       )}
+
+      {/* Form Content */}
+      <div className="p-6 max-h-96 overflow-y-auto">
+        {(() => {
+          const agent = purchasedAgents.find(a => a.id === showExecutionForm)?.agent ||
+                      allAgents.find(a => a.id === showExecutionForm)
+          
+          if (!agent?.input_schema || agent.input_schema.length === 0) {
+            return (
+              <div className="text-center py-8">
+                <div className="text-6xl mb-4">🚀</div>
+                <h4 className="text-xl text-cyan-400 mb-2">Ready to Execute</h4>
+                <p className="text-gray-400">This agent requires no additional parameters.</p>
+              </div>
+            )
+          }
+
+          return (
+            <div className="space-y-6">
+              <div className="text-sm text-gray-400 mb-4">
+                Configure the following parameters for optimal results:
+              </div>
+              
+              {agent.input_schema.map((field: any) => (
+                <div key={field.name} className="space-y-2">
+                  <label className="flex items-center space-x-2 text-green-300 font-medium">
+                    <span>{field.label}</span>
+                    {field.required && <span className="text-red-400">*</span>}
+                    <div className="text-xs text-gray-500 bg-gray-800 px-2 py-1 rounded">
+                      {field.type}
+                    </div>
+                  </label>
+                  
+                  <div className="relative">
+                    {renderInputField(field)}
+                    {field.placeholder && (
+                      <div className="text-xs text-gray-500 mt-1">
+                        💡 {field.placeholder}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
+        })()}
+      </div>
+
+      {/* Action Buttons */}
+      <div className="border-t border-green-500 border-opacity-30 p-6 bg-gray-800 bg-opacity-30">
+        <div className="flex justify-between items-center">
+          {!executionLoading && (
+            <button
+              onClick={() => {
+                setShowExecutionForm(null)
+                setExecutionData({})
+              }}
+              className="px-6 py-3 border border-gray-500 text-gray-400 hover:bg-gray-800 transition-all duration-200 rounded"
+            >
+              CANCEL
+            </button>
+          )}
+          
+          {executionLoading && (
+            <div className="text-gray-400 text-sm">
+              Please wait while the agent processes your request...
+            </div>
+          )}
+
+          <button
+            onClick={() => handleExecutionFormSubmit(showExecutionForm, purchasedAgents.some(a => a.id === showExecutionForm))}
+            disabled={executionLoading}
+            className={`px-8 py-3 font-bold rounded transition-all duration-300 ${
+              executionLoading
+                ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                : 'bg-green-500 hover:bg-green-600 text-black shadow-lg hover:shadow-xl hover:scale-105'
+            }`}
+          >
+            {executionLoading ? (
+              <div className="flex items-center space-x-2">
+                <div className="animate-spin text-xl">⟳</div>
+                <span>EXECUTING...</span>
+              </div>
+            ) : (
+              <div className="flex items-center space-x-2">
+                <span>🚀</span>
+                <span>EXECUTE AGENT</span>
+              </div>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
 
       {/* Main Content */}
       <main className="container mx-auto p-6">
