@@ -40,7 +40,7 @@ export default function AdminPanel() {
   const [user, setUser] = useState<User | null>(null)
   const [agents, setAgents] = useState<Agent[]>([])
   const [loading, setLoading] = useState(true)
-  const [submitting, setSubmitting] = useState(false)
+  const [submitting, setSubmitting] = useState<boolean>(false)
   const [showForm, setShowForm] = useState(false)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [requiresInputs, setRequiresInputs] = useState(false)
@@ -49,6 +49,7 @@ export default function AdminPanel() {
   const [showEditForm, setShowEditForm] = useState(false)
   const [forceUpdate, setForceUpdate] = useState(0)
   const router = useRouter()
+  
 
   // Form state - FIXED TYPING
   const [formData, setFormData] = useState({
@@ -347,12 +348,47 @@ export default function AdminPanel() {
       customPrices: {}
     })
     
-    setRequiresInputs(agent.input_schema && agent.input_schema.length > 0)
+    setRequiresInputs(Boolean(agent.input_schema && agent.input_schema.length > 0))
     setFormFields(agent.input_schema?.map((field: any) => ({
-      id: `field_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `field_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
       ...field
     })) || [])
     setShowEditForm(true)
+  }
+
+  const handleUpdateAgent = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    if (!editingAgent) return
+    
+    try {
+      setSubmitting(true)
+
+      const { error } = await supabase
+        .from('agents')
+        .update({
+          name: formData.name.trim(),
+          description: formData.description.trim(),
+          category: formData.category.trim(),
+          webhook_url: formData.webhook_url.trim(),
+          is_active: formData.is_active,
+          pricing_config: agentPricing
+        })
+        .eq('id', editingAgent.id)
+
+      if (error) throw error
+
+      alert('✅ Agent updated successfully!')
+      setShowEditForm(false)
+      setEditingAgent(null)
+      await loadAgents()
+      
+    } catch (error) {
+      console.error('Error updating agent:', error)
+      alert(`❌ Failed to update agent: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const handleToggleActive = async (agentId: string, currentStatus: boolean) => {
@@ -378,7 +414,7 @@ export default function AdminPanel() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-black flex items-center justify-center">
+      <div className="min-h-screen bg-linear-to-br from-black via-gray-900 to-black flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-yellow-400 mb-4"></div>
           <p className="text-white text-lg">Loading Admin Panel...</p>
@@ -389,7 +425,7 @@ export default function AdminPanel() {
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-black flex items-center justify-center">
+      <div className="min-h-screen bg-linear-to-br from-black via-gray-900 to-black flex items-center justify-center">
         <div className="text-center text-white">
           <h1 className="text-2xl font-bold mb-4">Access Denied</h1>
           <p>Admin access required</p>
@@ -399,12 +435,22 @@ export default function AdminPanel() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-black">
+    <div className="min-h-screen bg-linear-to-br from-black via-gray-900 to-black">
       <div className="container mx-auto px-4 py-8">
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold text-yellow-400 mb-2">🔧 ADMIN PANEL</h1>
           <p className="text-gray-300">Manage AI agents in the marketplace</p>
           <p className="text-sm text-gray-400">Logged in as: {user.email}</p>
+          
+          {/* Add Dashboard Navigation */}
+          <div className="mt-4">
+            <button
+              onClick={() => router.push('/dashboard')}
+              className="px-6 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg font-medium transition-colors"
+            >
+              ← Back to Dashboard
+            </button>
+          </div>
         </div>
 
         {/* Stats Cards */}
@@ -572,6 +618,111 @@ export default function AdminPanel() {
                 </button>
               </div>
             </form>
+          </div>
+        )}
+
+        {/* Edit Form Modal */}
+        {showEditForm && editingAgent && (
+          <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50 p-4">
+            <div className="bg-gray-900 border-2 border-blue-500 rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="border-b border-blue-500 p-6">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-2xl text-blue-400 font-bold">Edit Agent: {editingAgent.name}</h3>
+                  <button
+                    onClick={() => setShowEditForm(false)}
+                    className="text-gray-400 hover:text-red-400 text-2xl"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+              
+              <div className="p-6">
+                <form onSubmit={handleUpdateAgent} className="space-y-6">
+                  {/* Agent Info Fields */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-yellow-400 font-medium mb-2">Agent Name *</label>
+                      <input
+                        type="text"
+                        value={formData.name}
+                        onChange={(e) => setFormData({...formData, name: e.target.value})}
+                        className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-3 text-white focus:border-yellow-400 focus:outline-none"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-yellow-400 font-medium mb-2">Category *</label>
+                      <select
+                        value={formData.category}
+                        onChange={(e) => setFormData({...formData, category: e.target.value})}
+                        className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-3 text-white focus:border-yellow-400 focus:outline-none"
+                        required
+                      >
+                        <option value="SEO">SEO</option>
+                        <option value="Content">Content</option>
+                        <option value="Social Media">Social Media</option>
+                        <option value="Analytics">Analytics</option>
+                        <option value="Marketing">Marketing</option>
+                        <option value="Development">Development</option>
+                        <option value="Design">Design</option>
+                        <option value="Business">Business</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-yellow-400 font-medium mb-2">Description *</label>
+                    <textarea
+                      value={formData.description}
+                      onChange={(e) => setFormData({...formData, description: e.target.value})}
+                      rows={4}
+                      className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-3 text-white focus:border-yellow-400 focus:outline-none resize-none"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-yellow-400 font-medium mb-2">Webhook URL *</label>
+                    <input
+                      type="url"
+                      value={formData.webhook_url}
+                      onChange={(e) => setFormData({...formData, webhook_url: e.target.value})}
+                      className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-3 text-white focus:border-yellow-400 focus:outline-none"
+                      required
+                    />
+                  </div>
+
+                  <div className="flex items-center space-x-3">
+                    <input
+                      type="checkbox"
+                      checked={formData.is_active}
+                      onChange={(e) => setFormData({...formData, is_active: e.target.checked})}
+                      className="w-5 h-5 text-green-400 bg-gray-900 border-gray-600 rounded focus:ring-green-400"
+                    />
+                    <span className="text-green-400 font-medium">✅ Active in Marketplace</span>
+                  </div>
+
+                  <div className="flex gap-4 pt-6">
+                    <button
+                      type="submit"
+                      disabled={submitting}
+                      className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white py-4 rounded-lg font-bold text-lg transition-colors"
+                    >
+                      {submitting ? 'UPDATING...' : 'UPDATE AGENT'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowEditForm(false)}
+                      className="px-6 py-4 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
           </div>
         )}
 
