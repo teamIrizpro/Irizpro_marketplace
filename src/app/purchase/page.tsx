@@ -1,9 +1,20 @@
+// Improved Purchase Page - Auto currency detection with clean UI
+// Updated src/app/purchase/page.tsx
+
 'use client'
 
 import { useState, useEffect, Suspense } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { User } from '@supabase/supabase-js'
+import { 
+  SUPPORTED_CURRENCIES, 
+  getUserPreferredCurrency, 
+  setUserPreferredCurrency,
+  formatCurrency,
+  getPrice,
+  PricingConfig
+} from '@/lib/currency'
 
 declare global {
   interface Window {
@@ -15,13 +26,16 @@ function PurchaseContent() {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(false)
   const [creditAmount, setCreditAmount] = useState(10)
+  const [selectedCurrency, setSelectedCurrency] = useState('INR')
+  const [showCurrencyOptions, setShowCurrencyOptions] = useState(false)
+  const [agentPricing, setAgentPricing] = useState<PricingConfig | null>(null)
+  
   const searchParams = useSearchParams()
   const router = useRouter()
 
   const agentId = searchParams.get('agent_id') || ''
   const userAgentId = searchParams.get('user_agent_id') || ''
   const agentName = searchParams.get('agent_name') || 'Unknown Agent'
-  const creditCost = parseFloat(searchParams.get('credit_cost') || '1')
   const isNewPurchase = searchParams.get('new_purchase') === 'true'
 
   const supabase = createBrowserClient(
@@ -31,6 +45,7 @@ function PurchaseContent() {
 
   useEffect(() => {
     checkUser()
+    loadAgentPricing()
     
     // Load Razorpay script
     const script = document.createElement('script')
@@ -38,8 +53,14 @@ function PurchaseContent() {
     script.async = true
     document.body.appendChild(script)
 
+    // Auto-detect user's currency (no manual selection needed initially)
+    const preferredCurrency = getUserPreferredCurrency()
+    setSelectedCurrency(preferredCurrency)
+
     return () => {
-      document.body.removeChild(script)
+      if (script.parentNode) {
+        script.parentNode.removeChild(script)
+      }
     }
   }, [])
 
@@ -52,70 +73,118 @@ function PurchaseContent() {
     setUser(user)
   }
 
+  const loadAgentPricing = async () => {
+    try {
+      // Load pricing from agent configuration (set by admin during agent creation)
+      const { data: agentData, error } = await supabase
+        .from('agents')
+        .select('pricing_config')
+        .eq('id', agentId)
+        .single()
+
+      if (error) {
+        console.error('Failed to load agent pricing:', error)
+        // Fallback pricing if agent pricing not found
+        const fallbackPricing: PricingConfig = {
+          basePrice: 50, // Default ₹50 INR
+        }
+        setAgentPricing(fallbackPricing)
+        return
+      }
+
+      // Parse pricing configuration set by admin
+      const pricingConfig = agentData.pricing_config || {
+        basePrice: 50,
+        customPrices: {}
+      }
+      
+      setAgentPricing(pricingConfig)
+    } catch (error) {
+      console.error('Failed to load agent pricing:', error)
+      // Fallback pricing
+      setAgentPricing({ basePrice: 50 })
+    }
+  }
+
+  // Get price for current currency (no indicators shown to user)
+  const creditCost = agentPricing ? getPrice(agentPricing, selectedCurrency) : 1
   const totalAmount = creditAmount * creditCost
 
-  const handlePayment = () => {
-    if (!window.Razorpay) {
-      alert('Razorpay not loaded. Please refresh and try again.')
+  const handleCurrencyChange = (currency: string) => {
+    setSelectedCurrency(currency)
+    setUserPreferredCurrency(currency)
+    setShowCurrencyOptions(false)
+  }
+
+  const handlePayment = async () => {
+    if (!window.Razorpay || !agentPricing) {
+      alert('Payment system not loaded. Please refresh and try again.')
       return
     }
 
     setLoading(true)
 
-    const options = {
-      key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID, // Your Razorpay Key ID
-      amount: Math.round(totalAmount * 100), // Amount in paise
-      currency: 'INR',
-      name: 'N8N Agent Marketplace',
-      description: `${creditAmount} credits for ${agentName}`,
-      image: '/logo.png', // Your company logo
-      handler: async (response: any) => {
-        try {
-          // Verify payment on backend (you'll need to implement this)
-          const verified = await verifyPayment(response)
-          
-          if (verified) {
+    try {
+      const res = await fetch('/api/razorpay/create-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          packageId: `agent_${agentId}`,
+          amount: totalAmount,
+          credits: creditAmount,
+          currency: selectedCurrency,
+        }),
+      })
+
+      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to create payment order')
+      }
+
+      const options = {
+        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+        amount: data.amount,
+        currency: selectedCurrency,
+        name: 'AI Agent Marketplace',
+        description: `${creditAmount} credits for ${agentName}`,
+        order_id: data.orderId,
+        handler: async function (response: any) {
+          try {
+            console.log('Payment successful:', response)
             await addCreditsToAgent()
             router.push('/dashboard?payment=success')
-          } else {
-            throw new Error('Payment verification failed')
+          } catch (error) {
+            console.error('Post-payment error:', error)
+            alert('Payment successful, but there was an issue adding credits. Please contact support.')
           }
-        } catch (error) {
-          console.error('Payment error:', error)
-          alert('Payment failed. Please try again.')
-        } finally {
-          setLoading(false)
-        }
-      },
-      prefill: {
-        name: user?.user_metadata?.full_name || '',
-        email: user?.email || '',
-      },
-      theme: {
-        color: '#8B5CF6'
-      },
-      modal: {
-        ondismiss: () => {
-          setLoading(false)
+        },
+        prefill: {
+          name: user?.user_metadata?.full_name || '',
+          email: user?.email || '',
+        },
+        theme: {
+          color: '#8B5CF6'
+        },
+        modal: {
+          ondismiss: () => {
+            setLoading(false)
+          }
         }
       }
+
+      const rzp = new window.Razorpay(options)
+      rzp.open()
+
+    } catch (error: any) {
+      console.error('Payment error:', error)
+      alert(error.message || 'Payment failed. Please try again.')
+      setLoading(false)
     }
-
-    const rzp = new window.Razorpay(options)
-    rzp.open()
-  }
-
-  const verifyPayment = async (paymentResponse: any) => {
-    // In a real implementation, you'd verify the payment signature on your backend
-    // For now, we'll simulate successful verification
-    console.log('Payment response:', paymentResponse)
-    return true
   }
 
   const addCreditsToAgent = async () => {
     try {
       if (isNewPurchase) {
-        // Create new user_agent entry
         const { error } = await supabase
           .from('user_agents')
           .insert({
@@ -123,10 +192,8 @@ function PurchaseContent() {
             agent_id: agentId,
             remaining_credits: creditAmount
           })
-
         if (error) throw error
       } else {
-        // Update existing user_agent
         const { data: currentAgent } = await supabase
           .from('user_agents')
           .select('remaining_credits')
@@ -140,32 +207,22 @@ function PurchaseContent() {
               remaining_credits: currentAgent.remaining_credits + creditAmount
             })
             .eq('id', userAgentId)
-
           if (error) throw error
         }
       }
-
-      // Log the transaction
-      await supabase
-        .from('transactions')
-        .insert({
-          user_id: user?.id,
-          agent_id: agentId,
-          credits_purchased: creditAmount,
-          amount_paid: totalAmount,
-          payment_status: 'completed'
-        })
-
     } catch (error) {
       console.error('Error adding credits:', error)
       throw error
     }
   }
 
-  if (!user) {
+  if (!user || !agentPricing) {
     return (
       <div className="min-h-screen bg-black text-green-400 font-mono flex items-center justify-center">
-        <div className="text-center">Loading...</div>
+        <div className="text-center">
+          <div className="animate-pulse text-2xl mb-4">◉ LOADING PURCHASE ◉</div>
+          <div className="text-sm">Loading pricing information...</div>
+        </div>
       </div>
     )
   }
@@ -175,7 +232,7 @@ function PurchaseContent() {
       {/* Header */}
       <header className="border-b-2 border-green-500 p-4">
         <div className="container mx-auto flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-yellow-400">◉ PAYMENT GATEWAY ◉</h1>
+          <h1 className="text-2xl font-bold text-yellow-400">◉ PURCHASE CREDITS ◉</h1>
           <button 
             onClick={() => router.back()}
             className="px-4 py-2 border border-gray-500 text-gray-400 hover:bg-gray-900 transition-colors"
@@ -200,11 +257,38 @@ function PurchaseContent() {
             </div>
           </div>
 
+          {/* Current Currency Display (Auto-detected) */}
+          <div className="mb-6">
+            <div className="flex items-center justify-between p-4 bg-gray-800 border border-gray-600 rounded">
+              <div className="flex items-center space-x-3">
+                <span className="text-2xl">{SUPPORTED_CURRENCIES[selectedCurrency]?.symbol}</span>
+                <div>
+                  <div className="font-medium text-green-200 text-lg">{selectedCurrency}</div>
+                  <div className="text-sm text-gray-400">{SUPPORTED_CURRENCIES[selectedCurrency]?.name}</div>
+                </div>
+              </div>
+              
+              <div className="text-right">
+                <div className="text-yellow-400 font-bold text-xl">
+                  {formatCurrency(creditCost, selectedCurrency)}/credit
+                </div>
+                <button
+                  onClick={() => setShowCurrencyOptions(true)}
+                  className="text-xs text-cyan-400 hover:text-cyan-300 underline mt-1"
+                >
+                  Change Currency
+                </button>
+              </div>
+            </div>
+          </div>
+
           {/* Purchase Details */}
           <div className="space-y-4 mb-6">
             <div className="flex justify-between items-center">
               <span className="text-gray-400">Cost per Credit:</span>
-              <span className="text-yellow-400 font-bold">₹{creditCost}</span>
+              <span className="text-yellow-400 font-bold">
+                {formatCurrency(creditCost, selectedCurrency)}
+              </span>
             </div>
 
             <div className="flex justify-between items-center">
@@ -233,7 +317,9 @@ function PurchaseContent() {
             <div className="border-t border-gray-600 pt-4">
               <div className="flex justify-between items-center text-xl">
                 <span className="text-gray-400">Total Amount:</span>
-                <span className="text-yellow-400 font-bold">₹{totalAmount}</span>
+                <span className="text-yellow-400 font-bold">
+                  {formatCurrency(totalAmount, selectedCurrency)}
+                </span>
               </div>
             </div>
           </div>
@@ -244,13 +330,12 @@ function PurchaseContent() {
             disabled={loading}
             className="w-full py-4 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-700 text-black font-bold text-lg border-2 border-yellow-400 transition-colors"
           >
-            {loading ? 'PROCESSING PAYMENT...' : 'PROCEED TO PAYMENT'}
+            {loading ? 'PROCESSING PAYMENT...' : `PAY ${formatCurrency(totalAmount, selectedCurrency)}`}
           </button>
 
           {/* Security Notice */}
           <div className="mt-6 text-xs text-gray-500 text-center">
-            <p>🔒 Secure payment powered by Razorpay</p>
-            <p>Your payment information is encrypted and secure</p>
+            <p>🔒 Secure payments powered by Razorpay</p>
           </div>
         </div>
 
@@ -270,12 +355,63 @@ function PurchaseContent() {
                 disabled={loading}
               >
                 {amount} Credits
-                <div className="text-xs">₹{amount * creditCost}</div>
+                <div className="text-xs">
+                  {formatCurrency(amount * creditCost, selectedCurrency)}
+                </div>
               </button>
             ))}
           </div>
         </div>
       </main>
+
+      {/* Currency Selection Modal (Only shown when user clicks "Change Currency") */}
+      {showCurrencyOptions && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 border-2 border-green-500 rounded-lg max-w-md w-full p-6">
+            <h3 className="text-xl text-green-400 mb-4 text-center">
+              ◉ SELECT CURRENCY ◉
+            </h3>
+            
+            <div className="space-y-3">
+              {Object.entries(SUPPORTED_CURRENCIES).map(([code, config]) => (
+                <button
+                  key={code}
+                  onClick={() => handleCurrencyChange(code)}
+                  className={`w-full p-3 border rounded transition-colors text-left ${
+                    selectedCurrency === code
+                      ? 'border-green-500 bg-green-900/30 text-green-300'
+                      : 'border-gray-600 text-gray-400 hover:border-green-600'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <span className="text-xl">{config.symbol}</span>
+                      <div>
+                        <div className="font-medium">{config.code}</div>
+                        <div className="text-xs text-gray-400">{config.name}</div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-bold text-yellow-400">
+                        {formatCurrency(getPrice(agentPricing!, code), code)}
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <div className="flex justify-between mt-6">
+              <button
+                onClick={() => setShowCurrencyOptions(false)}
+                className="px-4 py-2 border border-gray-500 text-gray-400 hover:bg-gray-800 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -286,7 +422,7 @@ export default function PurchasePage() {
       <div className="min-h-screen bg-black text-green-400 font-mono flex items-center justify-center">
         <div className="text-center">
           <div className="animate-pulse text-2xl mb-4">◉ LOADING PURCHASE ◉</div>
-          <div className="text-sm">Initializing payment gateway...</div>
+          <div className="text-sm">Initializing payment system...</div>
         </div>
       </div>
     }>
