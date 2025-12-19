@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useRouter } from 'next/navigation'
 
-// Add proper agent pricing interface
+// Agent pricing interface
 interface Agent {
   id: string
   name: string
@@ -69,6 +69,50 @@ function formatCurrency(amount: number, currency: string): string {
   return `${config.symbol}${amount.toFixed(2)}`
 }
 
+// Razorpay script loader utility
+function loadRazorpayScript(): Promise<boolean> {
+  return new Promise((resolve) => {
+    // Check if already loaded
+    if ((window as any).Razorpay) {
+      console.log('✅ Razorpay already loaded')
+      resolve(true)
+      return
+    }
+
+    // Check if script tag already exists
+    const existingScript = document.querySelector('script[src="https://checkout.razorpay.com/v1/checkout.js"]')
+    if (existingScript) {
+      existingScript.addEventListener('load', () => {
+        console.log('✅ Razorpay script loaded from existing tag')
+        resolve(true)
+      })
+      existingScript.addEventListener('error', () => {
+        console.error('❌ Failed to load Razorpay script')
+        resolve(false)
+      })
+      return
+    }
+
+    // Create new script tag
+    console.log('📦 Loading Razorpay script...')
+    const script = document.createElement('script')
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js'
+    script.async = true
+    
+    script.onload = () => {
+      console.log('✅ Razorpay script loaded successfully')
+      resolve(true)
+    }
+    
+    script.onerror = () => {
+      console.error('❌ Failed to load Razorpay script')
+      resolve(false)
+    }
+    
+    document.body.appendChild(script)
+  })
+}
+
 export default function PurchasePage() {
   const [agent, setAgent] = useState<Agent | null>(null)
   const [selectedCredits, setSelectedCredits] = useState(1)
@@ -76,9 +120,23 @@ export default function PurchasePage() {
   const [loading, setLoading] = useState(true)
   const [paymentProcessing, setPaymentProcessing] = useState(false)
   const [user, setUser] = useState<any>(null)
+  const [razorpayLoaded, setRazorpayLoaded] = useState(false)
   const router = useRouter()
 
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
+
   useEffect(() => {
+    // Load Razorpay script on component mount
+    loadRazorpayScript().then(loaded => {
+      setRazorpayLoaded(loaded)
+      if (!loaded) {
+        console.error('Failed to load Razorpay. Payment will not work.')
+      }
+    })
+
     setUserCurrency(detectUserCurrency())
     loadAgent()
     checkUser()
@@ -86,15 +144,9 @@ export default function PurchasePage() {
 
   const checkUser = async () => {
     try {
-      const supabase = createBrowserClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      )
-
       const { data: { user }, error } = await supabase.auth.getUser()
       
       if (error || !user) {
-        // Store purchase intent and redirect to login
         const urlParams = new URLSearchParams(window.location.search)
         const purchaseData = {
           agent_id: urlParams.get('agent_id'),
@@ -122,11 +174,6 @@ export default function PurchasePage() {
       if (!agentId) {
         throw new Error('Agent ID not found')
       }
-
-      const supabase = createBrowserClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      )
 
       const { data, error } = await supabase
         .from('agents')
@@ -162,17 +209,34 @@ export default function PurchasePage() {
       return
     }
 
+    // Check if Razorpay is loaded
+    if (!razorpayLoaded || !(window as any).Razorpay) {
+      alert('❌ Payment system is still loading. Please wait a moment and try again.')
+      
+      // Try loading again
+      console.log('🔄 Attempting to reload Razorpay...')
+      const loaded = await loadRazorpayScript()
+      if (!loaded) {
+        alert('❌ Failed to load payment system. Please refresh the page.')
+        return
+      }
+      setRazorpayLoaded(true)
+    }
+
     setPaymentProcessing(true)
 
     try {
       // Only process INR payments via Razorpay for now
       if (userCurrency !== 'INR') {
         alert('Payment currently only available in INR. Please contact support for other currencies.')
+        setPaymentProcessing(false)
         return
       }
 
       const agentPrice = getAgentPrice(agent, userCurrency)
       const totalAmount = agentPrice * selectedCredits
+
+      console.log('💳 Creating Razorpay order...', { totalAmount, credits: selectedCredits })
 
       // Create Razorpay order
       const orderResponse = await fetch('/api/razorpay/create-order', {
@@ -191,10 +255,17 @@ export default function PurchasePage() {
         throw new Error(orderData.error || 'Failed to create payment order')
       }
 
+      console.log('✅ Order created:', orderData.orderId)
+
+      // Verify Razorpay is available
+      if (!(window as any).Razorpay) {
+        throw new Error('Razorpay is not loaded. Please refresh the page.')
+      }
+
       // Initialize Razorpay
       const options = {
         key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
-        amount: totalAmount * 100, // Convert to paise
+        amount: totalAmount * 100,
         currency: 'INR',
         name: 'AI Agent Marketplace',
         description: `${selectedCredits} credits for ${agent.name}`,
@@ -211,6 +282,8 @@ export default function PurchasePage() {
         },
         handler: async function (response: any) {
           try {
+            console.log('✅ Payment successful:', response)
+            
             // Verify payment on server
             const verifyResponse = await fetch('/api/razorpay/verify-payment', {
               method: 'POST',
@@ -233,40 +306,44 @@ export default function PurchasePage() {
           } catch (error) {
             console.error('Payment verification error:', error)
             alert('❌ Payment verification failed. Please contact support.')
+          } finally {
+            setPaymentProcessing(false)
           }
         },
         modal: {
           ondismiss: function() {
-            console.log('Payment modal closed')
+            console.log('Payment modal closed by user')
+            setPaymentProcessing(false)
           }
+        },
+        theme: {
+          color: '#EAB308' // Yellow theme
         }
       }
 
-      // Load Razorpay script if not already loaded
-      if (!(window as any).Razorpay) {
-        const script = document.createElement('script')
-        script.src = 'https://checkout.razorpay.com/v1/checkout.js'
-        script.onload = () => {
-          const rzp = new (window as any).Razorpay(options)
-          rzp.open()
-        }
-        document.head.appendChild(script)
-      } else {
-        const rzp = new (window as any).Razorpay(options)
-        rzp.open()
-      }
+      console.log('🚀 Opening Razorpay modal...')
+      
+      // Create and open Razorpay instance
+      const rzp = new (window as any).Razorpay(options)
+      
+      rzp.on('payment.failed', function (response: any) {
+        console.error('❌ Payment failed:', response.error)
+        alert(`Payment failed: ${response.error.description}`)
+        setPaymentProcessing(false)
+      })
+      
+      rzp.open()
       
     } catch (error) {
       console.error('Payment error:', error)
-      alert('❌ Payment failed. Please try again.')
-    } finally {
+      alert(`❌ Payment failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
       setPaymentProcessing(false)
     }
   }
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-linear-to-br from-black via-gray-900 to-black flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-black flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-yellow-400 mb-4"></div>
           <p className="text-white text-lg">Loading purchase details...</p>
@@ -297,12 +374,27 @@ export default function PurchasePage() {
   const currencyConfig = CURRENCIES[userCurrency as keyof typeof CURRENCIES]
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-black via-gray-900 to-black text-white p-6">
+    <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-black text-white p-6">
       <div className="max-w-md mx-auto">
         <div className="bg-gray-800 border border-yellow-500 rounded-lg p-6">
           <div className="text-center mb-6">
             <h1 className="text-2xl font-bold text-yellow-400">◉ CREDIT PURCHASE TERMINAL ◉</h1>
             <p className="text-gray-300 text-sm mt-2">Secure AI agent activation</p>
+            
+            {/* Razorpay Status Indicator */}
+            <div className="mt-3">
+              {razorpayLoaded ? (
+                <div className="text-xs text-green-400 flex items-center justify-center gap-2">
+                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                  <span>Payment system ready</span>
+                </div>
+              ) : (
+                <div className="text-xs text-yellow-400 flex items-center justify-center gap-2">
+                  <div className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse"></div>
+                  <span>Loading payment system...</span>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Agent Info */}
@@ -312,7 +404,7 @@ export default function PurchasePage() {
             <p className="text-xs text-gray-400 mt-2">{agent.description}</p>
           </div>
 
-          {/* Currency Display - FIXED: No selector, just display */}
+          {/* Currency Display */}
           <div className="bg-gray-700 rounded p-4 mb-6">
             <div className="flex items-center justify-center space-x-3">
               <div className="text-center">
@@ -375,7 +467,7 @@ export default function PurchasePage() {
           {/* Payment Button */}
           <button 
             onClick={handlePayment}
-            disabled={paymentProcessing || !user}
+            disabled={paymentProcessing || !user || !razorpayLoaded}
             className="w-full bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-black font-bold py-4 rounded-lg text-lg transition-colors"
           >
             {paymentProcessing ? (
@@ -383,6 +475,8 @@ export default function PurchasePage() {
                 <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-black"></div>
                 <span>PROCESSING...</span>
               </div>
+            ) : !razorpayLoaded ? (
+              'LOADING PAYMENT SYSTEM...'
             ) : !user ? (
               'LOGIN REQUIRED'
             ) : (
@@ -390,7 +484,7 @@ export default function PurchasePage() {
             )}
           </button>
 
-          {/* Login message for non-authenticated users */}
+          {/* Login message */}
           {!user && (
             <div className="mt-4 text-center text-sm text-gray-400">
               <p>Please log in to complete your purchase</p>
