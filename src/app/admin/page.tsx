@@ -49,7 +49,6 @@ export default function AdminPanel() {
   const [showEditForm, setShowEditForm] = useState(false)
   const [forceUpdate, setForceUpdate] = useState(0)
   const router = useRouter()
-  
 
   // Form state - FIXED TYPING
   const [formData, setFormData] = useState({
@@ -350,7 +349,7 @@ export default function AdminPanel() {
     
     setRequiresInputs(Boolean(agent.input_schema && agent.input_schema.length > 0))
     setFormFields(agent.input_schema?.map((field: any) => ({
-      id: `field_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+      id: `field_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       ...field
     })) || [])
     setShowEditForm(true)
@@ -364,6 +363,8 @@ export default function AdminPanel() {
     try {
       setSubmitting(true)
 
+      const inputSchema = requiresInputs ? generateInputSchema() : []
+
       const { error } = await supabase
         .from('agents')
         .update({
@@ -372,6 +373,8 @@ export default function AdminPanel() {
           category: formData.category.trim(),
           webhook_url: formData.webhook_url.trim(),
           is_active: formData.is_active,
+          input_schema: inputSchema,
+          credit_cost: agentPricing.basePrice,
           pricing_config: agentPricing
         })
         .eq('id', editingAgent.id)
@@ -414,7 +417,7 @@ export default function AdminPanel() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-linear-to-br from-black via-gray-900 to-black flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-black flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-yellow-400 mb-4"></div>
           <p className="text-white text-lg">Loading Admin Panel...</p>
@@ -692,6 +695,186 @@ export default function AdminPanel() {
                       className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-3 text-white focus:border-yellow-400 focus:outline-none"
                       required
                     />
+                  </div>
+
+                  {/* PRICING CONFIGURATION */}
+                  <MultiCurrencyPricingForm
+                    initialPricing={agentPricing}
+                    onPricingChange={handlePricingChange}
+                  />
+
+                  {/* USER INPUTS CONFIGURATION */}
+                  <div className="bg-gray-900/50 border border-purple-500 rounded-lg p-4">
+                    <label className="flex items-center space-x-3 cursor-pointer mb-4">
+                      <input
+                        type="checkbox"
+                        checked={requiresInputs}
+                        onChange={(e) => setRequiresInputs(e.target.checked)}
+                        className="w-5 h-5 text-yellow-400 bg-gray-900 border-gray-600 rounded focus:ring-yellow-400"
+                      />
+                      <div>
+                        <span className="text-purple-400 font-medium">🛠 This agent requires user inputs</span>
+                        <p className="text-sm text-gray-400">Check this if users need to provide data before executing this agent</p>
+                      </div>
+                    </label>
+
+                    {/* Input Fields Editor */}
+                    {requiresInputs && (
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                          <h4 className="text-lg text-purple-300 font-medium">Input Fields Configuration</h4>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => addFormField('text')}
+                              className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white text-sm rounded"
+                            >
+                              + Text Field
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => addFormField('textarea')}
+                              className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded"
+                            >
+                              + Textarea
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => addFormField('select')}
+                              className="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded"
+                            >
+                              + Select
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Dynamic Form Fields */}
+                        <div className="space-y-4 max-h-80 overflow-y-auto">
+                          {formFields.map((field, index) => (
+                            <div key={field.id} className="border border-gray-600 rounded p-4 bg-gray-800">
+                              <div className="flex justify-between items-center mb-3">
+                                <h5 className="text-purple-300 font-medium">Field {index + 1}: {field.type}</h5>
+                                <div className="flex gap-2">
+                                  {index > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => moveFormField(field.id, 'up')}
+                                      className="px-2 py-1 bg-gray-600 hover:bg-gray-500 text-white text-xs rounded"
+                                    >
+                                      ↑
+                                    </button>
+                                  )}
+                                  {index < formFields.length - 1 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => moveFormField(field.id, 'down')}
+                                      className="px-2 py-1 bg-gray-600 hover:bg-gray-500 text-white text-xs rounded"
+                                    >
+                                      ↓
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => removeFormField(field.id)}
+                                    className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div>
+                                  <label className="block text-xs text-gray-300 mb-1">Field Name (API)</label>
+                                  <input
+                                    type="text"
+                                    value={field.name}
+                                    onChange={(e) => updateFormField(field.id, 'name', e.target.value)}
+                                    placeholder="e.g., website_url"
+                                    className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white text-sm"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-xs text-gray-300 mb-1">Display Label</label>
+                                  <input
+                                    type="text"
+                                    value={field.label}
+                                    onChange={(e) => updateFormField(field.id, 'label', e.target.value)}
+                                    placeholder="e.g., Website URL"
+                                    className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white text-sm"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="mt-3">
+                                <label className="block text-xs text-gray-300 mb-1">Placeholder</label>
+                                <input
+                                  type="text"
+                                  value={field.placeholder || ''}
+                                  onChange={(e) => updateFormField(field.id, 'placeholder', e.target.value)}
+                                  placeholder="e.g., https://your-website.com"
+                                  className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white text-sm"
+                                />
+                              </div>
+
+                              {/* Options for select fields */}
+                              {field.type === 'select' && (
+                                <div className="mt-3">
+                                  <label className="block text-xs text-gray-300 mb-1">Options</label>
+                                  <div className="space-y-2">
+                                    {field.options?.map((option, optionIndex) => (
+                                      <div key={optionIndex} className="flex gap-2">
+                                        <input
+                                          type="text"
+                                          value={option}
+                                          onChange={(e) => updateOption(field.id, optionIndex, e.target.value)}
+                                          placeholder={`Option ${optionIndex + 1}`}
+                                          className="flex-1 bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white text-sm"
+                                        />
+                                        {field.options && field.options.length > 1 && (
+                                          <button
+                                            type="button"
+                                            onClick={() => removeOption(field.id, optionIndex)}
+                                            className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded"
+                                          >
+                                            ✕
+                                          </button>
+                                        )}
+                                      </div>
+                                    ))}
+                                    <button
+                                      type="button"
+                                      onClick={() => addOption(field.id)}
+                                      className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white text-xs rounded"
+                                    >
+                                      + Add Option
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+
+                              <div className="mt-3">
+                                <label className="flex items-center space-x-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={field.required}
+                                    onChange={(e) => updateFormField(field.id, 'required', e.target.checked)}
+                                    className="w-4 h-4 text-red-500"
+                                  />
+                                  <span className="text-xs text-gray-300">Required field</span>
+                                </label>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {formFields.length === 0 && (
+                          <div className="text-center py-8 text-gray-500 text-sm">
+                            No input fields configured. Click the buttons above to add fields.
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex items-center space-x-3">
