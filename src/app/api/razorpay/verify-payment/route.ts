@@ -1,238 +1,186 @@
-// src/app/api/razorpay/verify-payment/route.ts
-// Handles payment verification and database logging ONLY after successful payment
-import { NextResponse } from 'next/server';
-import crypto from 'crypto';
-import { supabaseServer } from '@/lib/supabase/server';
+/**
+ * Payment Verification Route
+ * Verifies Razorpay payment signature and processes payment atomically
+ *
+ * Security Features:
+ * - HMAC signature verification
+ * - Idempotency (duplicate payment detection)
+ * - Atomic database operations (no race conditions)
+ * - Rate limiting (10 requests/minute)
+ * - Input validation with Zod
+ * - Audit logging
+ */
 
-export async function POST(req: Request) {
-  try {
+import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
+import { supabaseAdmin } from '@/lib/supabase/admin';
+import { supabaseServer } from '@/lib/supabase/server';
+import {
+  asyncHandler,
+  handleError,
+  successResponse,
+  PaymentError,
+  DuplicateResourceError,
+} from '@/lib/error-handler';
+import { verifyPaymentSchema } from '@/lib/validation-schemas';
+import { withRateLimit, paymentRateLimiter } from '@/lib/rate-limiter';
+import { getOrCreateDefaultPackage, recordAuditLog } from '@/lib/database-utils';
+import {
+  PAYMENT,
+  AGENT,
+  ERROR_MESSAGES,
+  SUCCESS_MESSAGES,
+  HTTP_STATUS,
+  DATABASE,
+  AUDIT_LOG,
+} from '@/lib/constants';
+
+export const POST = withRateLimit(
+  paymentRateLimiter,
+  asyncHandler(async (req: NextRequest) => {
+    // 1. Validate request body
+    const validatedData = await req.json().then((data) =>
+      verifyPaymentSchema.parse(data)
+    );
+
     const {
       razorpay_order_id,
       razorpay_payment_id,
       razorpay_signature,
-    } = await req.json();
+      packageId,
+      amount,
+      credits,
+    } = validatedData;
 
-    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
-      return NextResponse.json(
-        { error: 'Missing required payment parameters' },
-        { status: 400 }
-      );
-    }
-
+    // 2. Authenticate user
     const supabase = await supabaseServer();
     const {
-      data: { session },
-      error: sessionError,
-    } = await supabase.auth.getSession();
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
 
-    if (sessionError || !session?.user) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    if (authError || !user) {
+      throw new PaymentError(ERROR_MESSAGES.AUTH.UNAUTHORIZED);
     }
 
-    // Verify Razorpay signature
-    const body = razorpay_order_id + '|' + razorpay_payment_id;
+    // 3. Verify Razorpay signature (CRITICAL SECURITY CHECK)
+    const body = `${razorpay_order_id}|${razorpay_payment_id}`;
     const expectedSignature = crypto
       .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET!)
-      .update(body.toString())
+      .update(body)
       .digest('hex');
 
     if (expectedSignature !== razorpay_signature) {
-      console.error('❌ Razorpay signature verification failed');
-      return NextResponse.json(
-        { error: 'Payment verification failed' },
-        { status: 400 }
-      );
+      console.error('[SECURITY] Invalid Razorpay signature', {
+        payment_id: razorpay_payment_id,
+        user_id: user.id,
+      });
+
+      await recordAuditLog({
+        userId: user.id,
+        action: AUDIT_LOG.ACTION.PAYMENT,
+        resource: AUDIT_LOG.RESOURCE.PAYMENT,
+        details: {
+          status: 'failed',
+          reason: 'invalid_signature',
+          payment_id: razorpay_payment_id,
+        },
+        ipAddress: req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || undefined,
+        userAgent: req.headers.get('user-agent') || undefined,
+      });
+
+      throw new PaymentError(ERROR_MESSAGES.PAYMENT.INVALID_SIGNATURE);
     }
 
-    console.log('✅ Payment verification successful');
-
-    // Get order details from Razorpay
-    const Razorpay = require('razorpay');
-    const razorpay = new Razorpay({
-      key_id: process.env.RAZORPAY_KEY_ID!,
-      key_secret: process.env.RAZORPAY_KEY_SECRET!,
+    console.log('[PAYMENT] Signature verified successfully', {
+      payment_id: razorpay_payment_id,
+      user_id: user.id,
     });
 
-    const order = await razorpay.orders.fetch(razorpay_order_id);
-    const notes = order.notes;
-    
-    const userId = notes.user_id;
-    const packageId = notes.package_id;
-    const credits = parseInt(notes.credits);
-    const amount = parseFloat(notes.amount);
-
-    console.log('📝 Processing payment for:', { userId, packageId, credits, amount });
-
-    // Handle package_id for agent purchases
+    // 4. Handle agent purchase package ID
     let finalPackageId = packageId;
-    
-    if (packageId.startsWith('agent_')) {
-      // Look for existing default package
-      const { data: defaultPackage } = await supabase
-        .from('credit_packages')
-        .select('id')
-        .eq('name', 'Agent Purchase Credits')
-        .single();
-      
-      if (defaultPackage) {
-        finalPackageId = defaultPackage.id;
-      } else {
-        // Create default package
-        const { data: newPackage, error: packageError } = await supabase
-          .from('credit_packages')
-          .insert({
-            name: 'Agent Purchase Credits',
-            description: 'Credits for individual agent purchases',
-            credits: 1,
-            price_inr: Math.round(amount),
-            is_active: true
-          })
-          .select('id')
-          .single();
-        
-        if (!packageError && newPackage) {
-          finalPackageId = newPackage.id;
-        } else {
-          console.error('Failed to create default package:', packageError);
-          finalPackageId = null; // Will skip DB insert below
-        }
-      }
+    let agentId: string | null = null;
+
+    if (packageId.startsWith(AGENT.PACKAGE_PREFIX)) {
+      agentId = packageId.replace(AGENT.PACKAGE_PREFIX, '');
+      finalPackageId = await getOrCreateDefaultPackage(amount, credits);
     }
 
-    // NOW insert into database (only after successful payment)
-    let purchaseId = null;
-    if (finalPackageId) {
-      const { data: purchaseData, error: dbError } = await supabase
-        .from('credit_purchases')
-        .insert({
-          user_id: userId,
-          package_id: finalPackageId,
-          razorpay_order_id,
-          razorpay_payment_id,
-          razorpay_signature,
-          amount_paid: Math.round(amount * 100), // in paise
-          credits_purchased: credits,
-          total_credits: credits,
-          bonus_credits: 0,
-          status: 'paid', // Mark as paid since payment is verified
-          currency: 'INR',
-          original_amount: amount,
-          exchange_rate: 1.0
-        })
-        .select('id')
-        .single();
-
-      if (dbError) {
-        console.error('Failed to insert credit_purchases:', dbError);
-        return NextResponse.json(
-          { error: 'Failed to record purchase' },
-          { status: 500 }
-        );
-      }
-      
-      purchaseId = purchaseData?.id;
-    }
-
-    // Add credits to user profile - Fix SQL syntax
-    // First get current credits
-    const { data: currentProfile } = await supabase
-      .from('profiles')
-      .select('credits, total_spent')
-      .eq('id', userId)
-      .single();
-
-    const currentCredits = currentProfile?.credits || 0;
-    const currentTotalSpent = currentProfile?.total_spent || 0;
-
-    const { error: creditsError } = await supabase
-      .from('profiles')
-      .update({
-        credits: currentCredits + credits,
-        total_spent: currentTotalSpent + Math.round(amount * 100)
-      })
-      .eq('id', userId);
-
-    if (creditsError) {
-      console.error('Failed to update user credits:', creditsError);
-    }
-
-    // Create credit transaction record
-    await supabase.from('credit_transactions').insert({
-      user_id: userId,
-      purchase_id: purchaseId, // Link to the credit purchase
-      type: 'purchase',
-      amount: credits,
-      balance_after: currentCredits + credits, // Add balance tracking
-      description: `Purchased ${credits} credits for agent ${packageId}`,
-      currency: 'INR',
-      original_amount: amount
+    // 5. Process payment atomically (includes idempotency check)
+    const result = await supabaseAdmin.rpc(DATABASE.RPC.PROCESS_PAYMENT_ATOMIC, {
+      p_user_id: user.id,
+      p_package_id: finalPackageId,
+      p_razorpay_order_id: razorpay_order_id,
+      p_razorpay_payment_id: razorpay_payment_id,
+      p_razorpay_signature: razorpay_signature,
+      p_amount_paid: Math.round(amount * PAYMENT.PAISE_MULTIPLIER),
+      p_credits_purchased: credits,
+      p_agent_id: agentId,
     });
 
-    console.log('✅ Payment processed and credits added successfully');
+    // 6. Check result
+    if (!result || !result.success) {
+      const errorMessage = result?.error || 'Unknown error';
 
-    // CRITICAL: Create user_agents relationship for dashboard access
-    if (packageId.startsWith('agent_')) {
-      const agentId = packageId.replace('agent_', '');
-      
-      // Check if user already has this agent (avoid duplicates)
-      const { data: existingUserAgent } = await supabase
-        .from('user_agents')
-        .select('id')
-        .eq('user_id', userId)
-        .eq('agent_id', agentId)
-        .single();
+      // Check if duplicate payment
+      if (errorMessage.includes('already processed')) {
+        console.warn('[PAYMENT] Duplicate payment detected', {
+          payment_id: razorpay_payment_id,
+          user_id: user.id,
+        });
 
-      if (!existingUserAgent) {
-        const { error: userAgentError } = await supabase
-          .from('user_agents')
-          .insert({
-            user_id: userId,
-            agent_id: agentId,
-            remaining_credits: credits // Set initial credits for this agent
-          });
-
-        if (userAgentError) {
-          console.error('Failed to create user_agents relationship:', userAgentError);
-        } else {
-          console.log('✅ User-agent relationship created for dashboard access');
-        }
-      } else {
-        // Agent already purchased, just add more credits
-        const { data: currentUserAgent } = await supabase
-          .from('user_agents')
-          .select('remaining_credits')
-          .eq('id', existingUserAgent.id)
-          .single();
-
-        const currentRemainingCredits = currentUserAgent?.remaining_credits || 0;
-
-        const { error: updateError } = await supabase
-          .from('user_agents')
-          .update({
-            remaining_credits: currentRemainingCredits + credits
-          })
-          .eq('id', existingUserAgent.id);
-
-        if (updateError) {
-          console.error('Failed to update agent credits:', updateError);
-        } else {
-          console.log('✅ Additional credits added to existing agent');
-        }
+        throw new DuplicateResourceError(ERROR_MESSAGES.PAYMENT.DUPLICATE_PAYMENT);
       }
+
+      console.error('[PAYMENT] Processing failed', {
+        payment_id: razorpay_payment_id,
+        error: errorMessage,
+      });
+
+      throw new PaymentError(errorMessage);
     }
 
-    return NextResponse.json({ 
-      success: true, 
-      message: 'Payment verified, credits added, and agent access granted',
+    // 7. Log successful payment
+    console.log('[PAYMENT] Payment processed successfully', {
+      payment_id: razorpay_payment_id,
+      user_id: user.id,
       credits_added: credits,
-      agent_access: packageId.startsWith('agent_') ? 'granted' : 'n/a'
+      new_balance: result.new_balance,
+      agent_access: agentId ? 'granted' : 'n/a',
     });
-    
-  } catch (err) {
-    console.error('verify-payment route error:', err);
-    return NextResponse.json(
-      { error: 'Failed to verify payment' },
-      { status: 500 }
+
+    // 8. Record audit log
+    await recordAuditLog({
+      userId: user.id,
+      action: AUDIT_LOG.ACTION.CREDIT_PURCHASE,
+      resource: AUDIT_LOG.RESOURCE.PAYMENT,
+      resourceId: result.purchase_id,
+      details: {
+        payment_id: razorpay_payment_id,
+        order_id: razorpay_order_id,
+        credits_purchased: credits,
+        amount_paid: amount,
+        currency: PAYMENT.DEFAULT_CURRENCY,
+        agent_id: agentId,
+        new_balance: result.new_balance,
+      },
+      ipAddress: req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || undefined,
+      userAgent: req.headers.get('user-agent') || undefined,
+    });
+
+    // 9. Return success response
+    return successResponse(
+      {
+        success: true,
+        message: SUCCESS_MESSAGES.PAYMENT.VERIFIED,
+        data: {
+          credits_added: credits,
+          new_balance: result.new_balance,
+          purchase_id: result.purchase_id,
+          agent_access: agentId ? 'granted' : 'n/a',
+        },
+      },
+      HTTP_STATUS.OK
     );
-  }
-}
+  })
+);

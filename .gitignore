@@ -39,3 +39,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+#n8n_Json
+/n8n_Json
+
+CLAUDE.md
+IMPLEMENTATION_SUMMARY.md
+SECURITY_GUIDE.md
+supabase/SCHEMA_EXPORT_INSTRUCTIONS.md
+supabase/migrations/MIGRATION_INSTRUCTIONS.md
+supabase/migrations/QUICK_START.md
