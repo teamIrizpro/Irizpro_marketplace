@@ -1,23 +1,43 @@
 // src/lib/supabase/admin.ts
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+// Lazy singleton pattern - only create when accessed
+let adminClientInstance: SupabaseClient | null = null;
 
-if (!supabaseUrl || !serviceRoleKey) {
-  throw new Error('Missing SUPABASE environment variables for admin client');
+function getSupabaseAdminInstance(): SupabaseClient {
+  if (adminClientInstance) {
+    return adminClientInstance;
+  }
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error('Missing SUPABASE environment variables for admin client');
+  }
+
+  adminClientInstance = createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+    },
+  });
+
+  return adminClientInstance;
 }
 
-// Create and export admin client instance
-export const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-  auth: {
-    persistSession: false,
+// Export as a Proxy to make it behave like a regular Supabase client
+// but initialize lazily on first property access
+export const supabaseAdmin = new Proxy({} as SupabaseClient, {
+  get(target, prop) {
+    const client = getSupabaseAdminInstance();
+    const value = client[prop as keyof SupabaseClient];
+    return typeof value === 'function' ? value.bind(client) : value;
   },
 });
 
 // Helper function for explicit admin client creation if needed
 export function getSupabaseAdmin() {
-  return supabaseAdmin;
+  return getSupabaseAdminInstance();
 }
 
 export default supabaseAdmin;
