@@ -143,7 +143,7 @@ export const POST = withRateLimit(
     });
 
     // 7. Atomically deduct credits (prevents race conditions)
-    const deductResult = await supabaseAdmin.rpc(
+    const { data: deductResult, error: rpcError } = await supabaseAdmin.rpc(
       DATABASE.RPC.DEDUCT_CREDITS_ATOMIC,
       {
         p_user_id: user.id,
@@ -154,8 +154,8 @@ export const POST = withRateLimit(
     );
 
     // 8. Check if deduction was successful
-    if (!deductResult || !deductResult.success) {
-      const errorMessage = deductResult?.error || 'Unknown error';
+    if (rpcError || !deductResult || !deductResult.success) {
+      const errorMessage = rpcError?.message || deductResult?.error || 'Unknown error';
 
       // Update execution with failure
       await updateExecutionResult(
@@ -186,7 +186,7 @@ export const POST = withRateLimit(
 
     // 9. Execute n8n workflow
     let workflowResult;
-    let executionStatus = EXECUTION.STATUS.SUCCESS;
+    let executionStatus: string = EXECUTION.STATUS.SUCCESS;
     let executionError: string | undefined;
 
     try {

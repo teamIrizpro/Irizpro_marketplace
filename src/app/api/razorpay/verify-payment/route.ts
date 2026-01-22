@@ -107,20 +107,23 @@ export const POST = withRateLimit(
     }
 
     // 5. Process payment atomically (includes idempotency check)
-    const result = await supabaseAdmin.rpc(DATABASE.RPC.PROCESS_PAYMENT_ATOMIC, {
-      p_user_id: user.id,
-      p_package_id: finalPackageId,
-      p_razorpay_order_id: razorpay_order_id,
-      p_razorpay_payment_id: razorpay_payment_id,
-      p_razorpay_signature: razorpay_signature,
-      p_amount_paid: Math.round(amount * PAYMENT.PAISE_MULTIPLIER),
-      p_credits_purchased: credits,
-      p_agent_id: agentId,
-    });
+    const { data: result, error: rpcError } = await supabaseAdmin.rpc(
+      DATABASE.RPC.PROCESS_PAYMENT_ATOMIC,
+      {
+        p_user_id: user.id,
+        p_package_id: finalPackageId,
+        p_razorpay_order_id: razorpay_order_id,
+        p_razorpay_payment_id: razorpay_payment_id,
+        p_razorpay_signature: razorpay_signature,
+        p_amount_paid: Math.round(amount * PAYMENT.PAISE_MULTIPLIER),
+        p_credits_purchased: credits,
+        p_agent_id: agentId,
+      }
+    );
 
     // 6. Check result
-    if (!result || !result.success) {
-      const errorMessage = result?.error || 'Unknown error';
+    if (rpcError || !result || !result.success) {
+      const errorMessage = rpcError?.message || result?.error || 'Unknown error';
 
       // Check if duplicate payment
       if (errorMessage.includes('already processed')) {

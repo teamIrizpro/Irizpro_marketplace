@@ -50,7 +50,7 @@ export const webhookPayloadSchema = z.object({
 
 export const runWorkflowSchema = z.object({
   agentId: z.string().uuid('Invalid agent ID format'),
-  inputs: z.record(z.unknown()).optional(),
+  inputs: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const executionProgressSchema = z.object({
@@ -69,7 +69,7 @@ export const createAgentSchema = z.object({
     .min(10, 'Description must be at least 10 characters')
     .max(1000, 'Description must not exceed 1000 characters'),
   category: z.enum(AGENT.CATEGORIES, {
-    errorMap: () => ({ message: 'Invalid category' }),
+    message: 'Invalid category',
   }),
   webhook_url: z.string()
     .url('Invalid webhook URL format')
@@ -110,14 +110,14 @@ export const creditTransactionSchema = z.object({
   user_id: z.string().uuid('Invalid user ID'),
   type: z.enum([
     CREDIT_TRANSACTION.TYPE.PURCHASE,
-    CREDIT_TRANSACTION.TYPE.USAGE,
+    CREDIT_TRANSACTION.TYPE.SPEND,
     CREDIT_TRANSACTION.TYPE.REFUND,
     CREDIT_TRANSACTION.TYPE.BONUS,
-    CREDIT_TRANSACTION.TYPE.ADJUSTMENT,
+    CREDIT_TRANSACTION.TYPE.ADMIN_ADJUSTMENT,
   ]),
   amount: z.number().int('Amount must be an integer'),
   description: z.string().optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 // ============================================

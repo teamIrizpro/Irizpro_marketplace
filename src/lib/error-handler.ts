@@ -3,7 +3,7 @@
  * Provides consistent error responses and logging across the application
  */
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { HTTP_STATUS, ERROR_MESSAGES } from './constants';
 
 // ============================================
@@ -59,7 +59,7 @@ export class ResourceNotFoundError extends AppError {
 }
 
 export class RateLimitError extends AppError {
-  constructor(message = ERROR_MESSAGES.RATE_LIMIT.EXCEEDED) {
+  constructor(message: string = ERROR_MESSAGES.RATE_LIMIT.EXCEEDED) {
     super(HTTP_STATUS.TOO_MANY_REQUESTS, message, 'RATE_LIMIT_EXCEEDED');
     this.name = 'RateLimitError';
   }
@@ -179,7 +179,7 @@ function handleSupabaseError(
   error: { code: string; message: string },
   path?: string
 ): NextResponse {
-  let statusCode = HTTP_STATUS.INTERNAL_SERVER_ERROR;
+  let statusCode: number = HTTP_STATUS.INTERNAL_SERVER_ERROR;
   let message = error.message;
 
   // Map Supabase error codes to HTTP status codes
@@ -286,9 +286,9 @@ export function successResponse<T>(
  * });
  */
 export function asyncHandler(
-  handler: (req: Request) => Promise<NextResponse>
+  handler: (req: NextRequest) => Promise<NextResponse>
 ) {
-  return async (req: Request): Promise<NextResponse> => {
+  return async (req: NextRequest): Promise<NextResponse> => {
     try {
       return await handler(req);
     } catch (error) {
