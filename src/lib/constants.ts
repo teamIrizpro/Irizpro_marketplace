@@ -28,7 +28,7 @@ export const PAYMENT = {
   } as const,
 
   // Default currency
-  DEFAULT_CURRENCY: 'INR' as const,
+  DEFAULT_CURRENCY: 'USD' as const,
 } as const;
 
 // ============================================

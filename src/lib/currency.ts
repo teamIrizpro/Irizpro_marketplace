@@ -107,21 +107,22 @@ export function detectUserCurrency(): string {
   try {
     // Method 1: Browser timezone detection
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
-    if (timezone.includes('Kolkata') || timezone.includes('Delhi')) return 'INR'
-    if (timezone.includes('Dubai') || timezone.includes('Abu_Dhabi')) return 'AED'
-    if (timezone.includes('New_York') || timezone.includes('Los_Angeles')) return 'USD'
-    
+    if (timezone.includes('Kolkata') || timezone.includes('Delhi') || timezone.includes('Mumbai') || timezone.includes('Calcutta')) return 'INR'
+    if (timezone.includes('Dubai') || timezone.includes('Abu_Dhabi') || timezone.includes('Riyadh')) return 'AED'
+    if (timezone.includes('Europe/') || timezone.includes('Paris') || timezone.includes('Berlin') || timezone.includes('Rome') || timezone.includes('Madrid')) return 'EUR'
+    if (timezone.includes('America/') || timezone.includes('New_York') || timezone.includes('Los_Angeles') || timezone.includes('Chicago')) return 'USD'
+
     // Method 2: Browser locale detection
     const locale = navigator.language || navigator.languages?.[0] || 'en-US'
-    if (locale.includes('en-IN') || locale.includes('hi')) return 'INR'
-    if (locale.includes('ar-AE')) return 'AED'
-    if (locale.includes('en-US')) return 'USD'
-    
+    if (locale.includes('en-IN') || locale.includes('hi') || locale.includes('mr') || locale.includes('ta')) return 'INR'
+    if (locale.includes('ar-AE') || locale.includes('ar-SA')) return 'AED'
+    if (locale.includes('de') || locale.includes('fr') || locale.includes('it') || locale.includes('es') || locale.includes('en-GB')) return 'EUR'
+
   } catch (error) {
     console.log('Currency detection failed, using USD as fallback')
   }
-  
-  // Default fallback
+
+  // Default fallback to USD for rest of world
   return 'USD'
 }
 

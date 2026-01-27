@@ -19,6 +19,7 @@ export const createOrderSchema = z.object({
     .int('Credits must be an integer')
     .positive('Credits must be positive')
     .max(100000, 'Credits exceed maximum limit'),
+  currency: z.enum(['INR', 'USD', 'AED', 'EUR']).optional().default('USD'),
 });
 
 export const verifyPaymentSchema = z.object({
@@ -28,6 +29,7 @@ export const verifyPaymentSchema = z.object({
   packageId: z.string().min(1, 'Package ID is required'),
   amount: z.number().positive('Amount must be positive'),
   credits: z.number().int().positive('Credits must be positive'),
+  currency: z.enum(['INR', 'USD', 'AED', 'EUR']).optional().default('USD'),
 });
 
 export const webhookPayloadSchema = z.object({

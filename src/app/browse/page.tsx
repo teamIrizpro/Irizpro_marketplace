@@ -6,6 +6,14 @@ import { User } from '@supabase/supabase-js'
 import { useRouter } from 'next/navigation'
 import ModernBackground from '@/components/layouts/ModernBackground'
 import ModernHeader from '@/components/layouts/ModernHeader'
+import {
+  getUserPreferredCurrency,
+  setUserPreferredCurrency,
+  getPrice,
+  formatCurrency,
+  SUPPORTED_CURRENCIES,
+  type PricingConfig
+} from '@/lib/currency'
 
 interface Agent {
   id: string
@@ -17,6 +25,7 @@ interface Agent {
   is_active: boolean
   created_at: string
   updated_at: string
+  pricing_config?: PricingConfig
 }
 
 interface PurchasedAgent {
@@ -31,6 +40,7 @@ export default function BrowseAgents() {
   const [purchasedAgents, setPurchasedAgents] = useState<PurchasedAgent[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
+  const [selectedCurrency, setSelectedCurrency] = useState<string>('USD')
   const router = useRouter()
 
   const supabase = createBrowserClient(
@@ -39,6 +49,11 @@ export default function BrowseAgents() {
   )
 
   useEffect(() => {
+    // Detect and set user's currency on mount
+    const detectedCurrency = getUserPreferredCurrency()
+    setSelectedCurrency(detectedCurrency)
+    console.log('💱 Detected user currency:', detectedCurrency)
+
     checkUser()
     loadAgents()
   }, [])
@@ -118,13 +133,27 @@ export default function BrowseAgents() {
     return purchased?.remaining_credits || 0
   }
 
+  const handleCurrencyChange = (newCurrency: string) => {
+    setSelectedCurrency(newCurrency)
+    setUserPreferredCurrency(newCurrency)
+    console.log('💱 Currency changed to:', newCurrency)
+  }
+
   const handlePurchase = (agent: Agent) => {
+    // Calculate price based on selected currency and agent's pricing_config
+    const pricingConfig = agent.pricing_config || {
+      basePrice: agent.credit_cost,
+      customPrices: {}
+    }
+    const price = getPrice(pricingConfig, selectedCurrency)
+
     if (!user) {
       // Store agent data for after login
       localStorage.setItem('pendingPurchase', JSON.stringify({
         agent_id: agent.id,
         agent_name: agent.name,
-        credit_cost: agent.credit_cost.toString(),
+        credit_cost: price.toString(),
+        currency: selectedCurrency,
         new_purchase: 'true'
       }))
       router.push('/auth/login?redirect=purchase')
@@ -134,7 +163,8 @@ export default function BrowseAgents() {
     const params = new URLSearchParams({
       agent_id: agent.id,
       agent_name: agent.name,
-      credit_cost: agent.credit_cost.toString(),
+      credit_cost: price.toString(),
+      currency: selectedCurrency,
       new_purchase: 'true'
     })
     router.push(`/purchase?${params.toString()}`)
@@ -168,6 +198,29 @@ export default function BrowseAgents() {
             <p className="text-xl text-gray-400 max-w-2xl mx-auto">
               Browse our marketplace of powerful automation workflows
             </p>
+          </div>
+
+          {/* Currency Selector */}
+          <div className="mb-6">
+            <div className="flex flex-wrap gap-3 justify-center items-center">
+              <span className="text-sm text-gray-400 font-medium">Currency:</span>
+              {Object.keys(SUPPORTED_CURRENCIES).map(currencyCode => {
+                const currencyInfo = SUPPORTED_CURRENCIES[currencyCode]
+                return (
+                  <button
+                    key={currencyCode}
+                    onClick={() => handleCurrencyChange(currencyCode)}
+                    className={`px-4 py-2 rounded-lg font-medium transition-all duration-300 ${
+                      selectedCurrency === currencyCode
+                        ? 'bg-gradient-to-r from-cyan-500 to-purple-600 text-white shadow-lg shadow-purple-500/50'
+                        : 'bg-white/5 backdrop-blur-sm border border-white/10 text-gray-300 hover:bg-white/10 hover:text-white hover:border-white/20'
+                    }`}
+                  >
+                    {currencyInfo.symbol} {currencyCode}
+                  </button>
+                )
+              })}
+            </div>
           </div>
 
           {/* Category Filter */}
@@ -220,6 +273,7 @@ export default function BrowseAgents() {
                   remainingCredits={user ? getRemainingCredits(agent.id) : 0}
                   onPurchase={() => handlePurchase(agent)}
                   isLoggedIn={!!user}
+                  selectedCurrency={selectedCurrency}
                 />
               ))}
             </div>
@@ -236,10 +290,19 @@ interface ModernAgentCardProps {
   remainingCredits: number
   onPurchase: () => void
   isLoggedIn: boolean
+  selectedCurrency: string
 }
 
-function ModernAgentCard({ agent, isPurchased, remainingCredits, onPurchase, isLoggedIn }: ModernAgentCardProps) {
+function ModernAgentCard({ agent, isPurchased, remainingCredits, onPurchase, isLoggedIn, selectedCurrency }: ModernAgentCardProps) {
   const isNew = new Date(agent.created_at) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+
+  // Calculate price based on selected currency and agent's pricing_config
+  const pricingConfig = agent.pricing_config || {
+    basePrice: agent.credit_cost,
+    customPrices: {}
+  }
+  const price = getPrice(pricingConfig, selectedCurrency)
+  const formattedPrice = formatCurrency(price, selectedCurrency)
 
   return (
     <div className="group relative bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6 hover:bg-white/10 transition-all duration-300 hover:scale-105 hover:border-purple-500/50 hover:shadow-xl hover:shadow-purple-500/20">
@@ -277,7 +340,7 @@ function ModernAgentCard({ agent, isPurchased, remainingCredits, onPurchase, isL
       <div className="mb-4 p-4 bg-black/30 border border-white/10 rounded-lg">
         <div className="flex items-baseline gap-1">
           <span className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent">
-            ₹{agent.credit_cost}
+            {formattedPrice}
           </span>
           <span className="text-sm text-gray-400">/ execution</span>
         </div>

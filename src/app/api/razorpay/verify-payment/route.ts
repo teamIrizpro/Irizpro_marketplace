@@ -50,6 +50,7 @@ export const POST = withRateLimit(
       packageId,
       amount,
       credits,
+      currency = 'USD',
     } = validatedData;
 
     // 2. Authenticate user
@@ -163,7 +164,7 @@ export const POST = withRateLimit(
         order_id: razorpay_order_id,
         credits_purchased: credits,
         amount_paid: amount,
-        currency: PAYMENT.DEFAULT_CURRENCY,
+        currency: currency,
         agent_id: agentId,
         new_balance: result.new_balance,
       },

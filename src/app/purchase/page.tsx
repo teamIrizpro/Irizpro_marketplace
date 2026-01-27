@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { User } from '@supabase/supabase-js'
 import ModernBackground from '@/components/layouts/ModernBackground'
 import ModernHeader from '@/components/layouts/ModernHeader'
+import { formatCurrency, SUPPORTED_CURRENCIES } from '@/lib/currency'
 
 declare global {
   interface Window {
@@ -40,6 +41,7 @@ function PurchasePageContent() {
   const agentName = searchParams.get('agent_name') || 'Unknown Agent'
   const creditCost = parseFloat(searchParams.get('credit_cost') || '1')
   const isNewPurchase = searchParams.get('new_purchase') === 'true'
+  const currency = searchParams.get('currency') || 'USD'
 
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -94,7 +96,7 @@ function PurchasePageContent() {
           agentName: agentName,
           credits: creditAmount,
           amount: totalAmount,
-          currency: 'INR',
+          currency: currency,
           userId: user?.id
         })
       })
@@ -111,7 +113,7 @@ function PurchasePageContent() {
       const options = {
         key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
         amount: Math.round(totalAmount * 100), // Amount in paise
-        currency: 'INR',
+        currency: currency,
         name: 'AI Agent Marketplace',
         description: `${creditAmount} credits for ${agentName}`,
         order_id: orderData.orderId,
@@ -139,7 +141,7 @@ function PurchasePageContent() {
             console.log('📡 Calling verification API...')
             const verifyResponse = await fetch('/api/razorpay/verify-payment', {
               method: 'POST',
-              headers: { 
+              headers: {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json'
               },
@@ -147,6 +149,10 @@ function PurchasePageContent() {
                 razorpay_order_id: response.razorpay_order_id,
                 razorpay_payment_id: response.razorpay_payment_id,
                 razorpay_signature: response.razorpay_signature,
+                packageId: `agent_${agentId}`,
+                amount: totalAmount,
+                credits: creditAmount,
+                currency: currency,
               })
             })
 
@@ -249,7 +255,7 @@ function PurchasePageContent() {
             <div className="space-y-6 mb-8">
               <div className="flex justify-between items-center">
                 <span className="text-gray-400">Cost per Credit:</span>
-                <span className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent">₹{creditCost}</span>
+                <span className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent">{formatCurrency(creditCost, currency)}</span>
               </div>
 
               <div className="flex justify-between items-center">
@@ -278,7 +284,7 @@ function PurchasePageContent() {
               <div className="border-t border-white/10 pt-6">
                 <div className="flex justify-between items-center">
                   <span className="text-gray-400 text-lg">Total Amount:</span>
-                  <span className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent">₹{totalAmount}</span>
+                  <span className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent">{formatCurrency(totalAmount, currency)}</span>
                 </div>
               </div>
             </div>

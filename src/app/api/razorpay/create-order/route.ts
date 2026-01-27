@@ -47,7 +47,7 @@ export const POST = withRateLimit(
       createOrderSchema.parse(data)
     );
 
-    const { packageId, amount, credits } = validatedData;
+    const { packageId, amount, credits, currency = 'USD' } = validatedData;
 
     // 3. Authenticate user
     const supabase = await supabaseServer();
@@ -104,7 +104,7 @@ export const POST = withRateLimit(
 
     const order = await razorpay.orders.create({
       amount: Math.round(amount * PAYMENT.PAISE_MULTIPLIER),
-      currency: PAYMENT.DEFAULT_CURRENCY,
+      currency: currency,
       receipt: `cp_${Date.now().toString().slice(-8)}`,
       notes: {
         user_id: userId,
@@ -112,6 +112,7 @@ export const POST = withRateLimit(
         package_id: packageId,
         credits: String(credits),
         amount: String(amount),
+        currency: currency,
       },
     });
 
@@ -133,7 +134,7 @@ export const POST = withRateLimit(
         package_id: packageId,
         amount,
         credits,
-        currency: PAYMENT.DEFAULT_CURRENCY,
+        currency: currency,
       },
       ipAddress: req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || undefined,
       userAgent: req.headers.get('user-agent') || undefined,
